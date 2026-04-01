@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from typing import Any, Dict, List, Optional
 
@@ -46,6 +47,7 @@ def run_summary_rag_pipeline(
     top_kg_candidates: int = 20,
     include_raw_evidence: bool = True,
     max_raw_evidence_tickets: int = 3,
+    debug_output_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Run the summary-first RAG pipeline.
@@ -193,6 +195,18 @@ def run_summary_rag_pipeline(
     }
     logger.info("[SummaryRAG] eval_log=%s", json.dumps(eval_log, default=str))
 
+    if debug_output_dir:
+        _persist_debug_artifacts(
+            debug_output_dir,
+            new_card_summary=new_card_summary,
+            analog_tickets=analog_tickets,
+            vs_support=vs_support,
+            candidates=candidates,
+            raw_evidence=raw_evidence,
+            selector_raw_response=selection_result.get("raw_response"),
+            eval_log=eval_log,
+        )
+
     return {
         "selected_value_streams": final_selected,
         "rejected_candidates": selection_result.get("rejected_candidates", []),
@@ -215,6 +229,48 @@ def run_summary_rag_pipeline(
             "total_seconds": round(elapsed, 2),
         },
     }
+
+
+def _persist_debug_artifacts(
+    output_dir: str,
+    *,
+    new_card_summary: Dict[str, Any],
+    analog_tickets: List[Dict[str, Any]],
+    vs_support: List[Dict[str, Any]],
+    candidates: List[Dict[str, Any]],
+    raw_evidence: List[Dict[str, Any]],
+    selector_raw_response: Optional[str],
+    eval_log: Dict[str, Any],
+) -> None:
+    """
+    Write debug artifacts for a single pipeline run to ``output_dir``.
+
+    Files written:
+    - ``new_card_summary.json``  — structured new-card summary
+    - ``analog_tickets.json``    — FAISS top analog results with scores
+    - ``vs_support.json``        — VS support aggregation output
+    - ``kg_candidates.json``     — KG candidate list
+    - ``raw_evidence.json``      — raw snippet evidence
+    - ``selector_response.json`` — raw LLM selector output
+    - ``eval_log.json``          — structured evaluation log
+    """
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+        artifacts = {
+            "new_card_summary.json": new_card_summary,
+            "analog_tickets.json": analog_tickets,
+            "vs_support.json": vs_support,
+            "kg_candidates.json": candidates,
+            "raw_evidence.json": raw_evidence,
+            "selector_response.json": {"raw_response": selector_raw_response},
+            "eval_log.json": eval_log,
+        }
+        for filename, data in artifacts.items():
+            with open(os.path.join(output_dir, filename), "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2, default=str)
+        logger.info("[SummaryRAG] Debug artifacts written to %s", output_dir)
+    except Exception as exc:
+        logger.warning("[SummaryRAG] Failed to write debug artifacts: %s", exc)
 
 
 _ACTOR_KEYWORDS = [
