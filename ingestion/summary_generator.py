@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from src.services.generation_service import GenerationService
 from core.prompts import safe_json_extract
+from .schema import SummaryDoc
 
 logger = logging.getLogger(__name__)
 
@@ -69,13 +70,13 @@ Extract a structured summary.
 Return valid JSON ONLY.
 """
 
-def generate_historical_ticket_summary(
+def generate_ticket_summary(
     ticket_text: str,
     ticket_id: str,
     title: str,
     value_stream_labels: List[str],
     model: str = "gpt-5-mini-idp",
-) -> Dict[str, Any]:
+) -> SummaryDoc:
     """Use LLM to generate a structured summary of a historical ticket."""
     prompt = _HISTORICAL_SUMMARY_USER.format(
         ticket_id=ticket_id,
@@ -105,10 +106,10 @@ def generate_historical_ticket_summary(
         logger.error("Failed to generate summary for %s: %s", ticket_id, exc)
         raise
 
-def generate_idea_card_semantic_summary(
+def generate_new_card_summary(
     ppt_text: str,
     model: str = "gpt-5-mini-idp",
-) -> Dict[str, Any]:
+) -> SummaryDoc:
     """Use LLM to generate a structured summary of a new idea card."""
     prompt = _IDEA_CARD_SUMMARY_USER.format(
         ppt_text=ppt_text[:6000]
@@ -128,7 +129,7 @@ def generate_idea_card_semantic_summary(
         logger.error("Failed to generate idea card summary: %s", exc)
         raise
 
-def build_retrieval_text(summary: Dict[str, Any]) -> str:
+def build_retrieval_text(summary: SummaryDoc) -> str:
     """
     Concatenate summary fields into a single block of text optimized
     for vector embedding and retrieval.

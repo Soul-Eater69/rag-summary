@@ -10,7 +10,6 @@ Storage layout:
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
@@ -23,7 +22,12 @@ from langchain_core.documents import Document
 from src.clients.embedding import EmbeddingClient
 from .summary_generator import (
     build_retrieval_text,
-    generate_historical_ticket_summary,
+    generate_ticket_summary,
+)
+from .summary_loader import (
+    load_ticket_retrieval_text,
+    load_ticket_vs_labels,
+    load_ticket_title,
 )
 
 logger = logging.getLogger(__name__)
@@ -187,21 +191,21 @@ def ingest_tickets_to_index(
 
         ticket_dir = chunks_path / ticket_id
 
-        # Load retrieval text from all_chunks or concatenated chunk files
-        retrieval_text = _load_ticket_retrieval_text(ticket_dir)
+        # Load retrieval text from chunk files (via summary_loader)
+        retrieval_text = load_ticket_retrieval_text(ticket_dir)
         if not retrieval_text:
             logger.warning("No retrieval text found for %s, skipping", ticket_id)
             continue
 
         # Load known value-stream labels
-        vs_labels = _load_ticket_vs_labels(ticket_dir)
+        vs_labels = load_ticket_vs_labels(ticket_dir)
 
         # Load title
-        title = _load_ticket_title(ticket_dir, ticket_id)
+        title = load_ticket_title(ticket_dir, ticket_id)
 
         # Generate summary
         try:
-            summary = generate_historical_ticket_summary(
+            summary = generate_ticket_summary(
                 ticket_text=retrieval_text,
                 ticket_id=ticket_id,
                 title=title,
@@ -218,69 +222,3 @@ def ingest_tickets_to_index(
         return None
 
     return build_summary_index(summary_docs, index_dir=index_dir)
-
-
-def _load_ticket_retrieval_text(ticket_dir: pathlib.Path) -> str:
-    """Load concatenated text from ticket chunk files."""
-    # Try the chunk files in order - pick the richest available source
-    for candidate in [
-        "03_retrieval_views.json",
-        "02_attachment_text.json",
-        "01_ticket_data.json",
-    ]:
-        path = ticket_dir / candidate
-        if path.exists():
-            try:
-                with open(path, encoding="utf-8") as f:
-                    data = json.load(f)
-                if isinstance(data, dict):
-                    # Concatenate all text-like values
-                    parts = []
-                    for key, val in data.items():
-                        if isinstance(val, str) and len(val) > 20:
-                            parts.append(val)
-                        elif isinstance(val, list):
-                            for item in val:
-                                if isinstance(item, dict):
-                                    text = item.get("text") or item.get("content") or item.get("retrieval_text") or ""
-                                    if text:
-                                        parts.append(str(text))
-                                elif isinstance(item, str) and len(item) > 20:
-                                    parts.append(item)
-                    if parts:
-                        return "\n\n".join(parts)
-                elif isinstance(data, str):
-                    return data
-            except Exception:
-                continue
-    return ""
-
-
-def _load_ticket_vs_labels(ticket_dir: pathlib.Path) -> List[str]:
-    """Load value-stream labels from the ticket's 08_valuestream_map.json."""
-    vs_map_path = ticket_dir / "08_valuestream_map.json"
-    if not vs_map_path.exists():
-        return []
-    try:
-        with open(vs_map_path, encoding="utf-8") as f:
-            data = json.load(f)
-        return data.get("valueStreamNames", []) or []
-    except Exception:
-        return []
-
-
-def _load_ticket_title(ticket_dir: pathlib.Path, fallback: str) -> str:
-    """Load ticket title from 08_valuestream_map.json or 01_ticket_data.json."""
-    for candidate in ["08_valuestream_map.json", "01_ticket_data.json"]:
-        path = ticket_dir / candidate
-        if path.exists():
-            try:
-                with open(path, encoding="utf-8") as f:
-                    data = json.load(f)
-                title = data.get("title") or data.get("summary") or ""
-                if title:
-                    # Strip "TICKETID: " prefix
-                    return title.split(": ", 1)[1] if ": " in title else title
-            except Exception:
-                continue
-    return fallback
