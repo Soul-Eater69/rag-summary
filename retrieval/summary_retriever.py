@@ -51,6 +51,7 @@ def retrieve_raw_evidence_for_tickets(
     ticket_ids: List[str],
     *,
     ticket_chunks_dir: str = "ticket_chunks",
+    query_text: Optional[str] = None,
     max_chunks_per_ticket: int = 2,
     max_chunk_chars: int = 300,
 ) -> List[Dict[str, Any]]:
@@ -59,16 +60,29 @@ def retrieve_raw_evidence_for_tickets(
 
     Fetches the best raw evidence snippets from ticket chunk files
     for verification, citation, and borderline candidate validation.
+
+    Ranking: when ``query_text`` is provided, chunks are ranked by token
+    overlap with the query (higher overlap = more relevant).  Falls back to
+    length-based ranking only when no query text is available.
     """
     chunks_path = pathlib.Path(ticket_chunks_dir)
     evidence: List[Dict[str, Any]] = []
+    query_tokens = _tokenize(query_text) if query_text else set()
 
     for ticket_id in ticket_ids:
         ticket_dir = chunks_path / ticket_id
         raw_chunks = _load_raw_chunks(ticket_dir)
 
-        # Take top N chunks by length (longer = more substance)
-        ranked = sorted(raw_chunks, key=lambda c: len(c.get("text", "")), reverse=True)
+        if query_tokens:
+            # Rank by token overlap with the query text (more relevant = higher score)
+            ranked = sorted(
+                raw_chunks,
+                key=lambda c: _overlap_score(c.get("text") or c.get("content") or "", query_tokens),
+                reverse=True,
+            )
+        else:
+            # Fallback: prefer longer chunks as a rough substance proxy
+            ranked = sorted(raw_chunks, key=lambda c: len(c.get("text", "")), reverse=True)
 
         for chunk in ranked[:max_chunks_per_ticket]:
             text = (chunk.get("text") or chunk.get("content") or "").strip()
@@ -138,6 +152,9 @@ def collect_value_stream_evidence(
                     pass
 
         score = float(ticket.get("score", 0.0))
+        ticket_functions = list(ticket.get("direct_functions") or [])
+        ticket_actors = list(ticket.get("actors") or [])
+
         for label in labels:
             label = label.strip()
             if not label:
@@ -149,12 +166,20 @@ def collect_value_stream_evidence(
                     "support_count": 0,
                     "best_score": 0.0,
                     "supporting_ticket_ids": [],
+                    "supporting_functions": [],
+                    "supporting_actors": [],
                 }
             entry = vs_support[key]
             entry["support_count"] += 1
             entry["best_score"] = max(entry["best_score"], score)
             if ticket_id not in entry["supporting_ticket_ids"]:
                 entry["supporting_ticket_ids"].append(ticket_id)
+            for fn in ticket_functions:
+                if fn and fn not in entry["supporting_functions"]:
+                    entry["supporting_functions"].append(fn)
+            for actor in ticket_actors:
+                if actor and actor not in entry["supporting_actors"]:
+                    entry["supporting_actors"].append(actor)
 
     result = sorted(vs_support.values(), key=lambda x: (-x["support_count"], -x["best_score"]))
     logger.info("Collected %d value-stream evidence entries from %d analog tickets", len(result), len(analog_tickets))
@@ -164,6 +189,19 @@ def collect_value_stream_evidence(
 # ----------------------------------------------------------------------
 # Internal helpers
 # ----------------------------------------------------------------------
+
+
+def _tokenize(text: str) -> set:
+    """Return a set of lower-cased word tokens (3+ chars) for overlap scoring."""
+    return {w.lower() for w in (text or "").split() if len(w) >= 3}
+
+
+def _overlap_score(chunk_text: str, query_tokens: set) -> float:
+    """Fraction of query tokens that appear in the chunk text."""
+    if not query_tokens:
+        return 0.0
+    chunk_tokens = _tokenize(chunk_text)
+    return len(query_tokens & chunk_tokens) / len(query_tokens)
 
 
 def _load_raw_chunks(ticket_dir: pathlib.Path) -> List[Dict[str, Any]]:

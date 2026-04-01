@@ -15,6 +15,7 @@ End-to-end flow:
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Any, Dict, List, Optional
@@ -75,17 +76,7 @@ def run_summary_rag_pipeline(
     except Exception as exc:
         logger.error("[SummaryRAG] Summary generation failed: %s", exc)
         warnings.append(f"summary_generation_failed:{type(exc).__name__}")
-        # Fallback: use cleaned text as a basic summary
-        new_card_summary = {
-            "short_summary": cleaned_text[:300],
-            "business_goal": "",
-            "actors": [],
-            "direct_functions": [],
-            "implied_functions": [],
-            "change_types": [],
-            "domain_tags": [],
-            "evidence_sentences": [],
-        }
+        new_card_summary = _deterministic_fallback_summary(cleaned_text)
 
     logger.info("[SummaryRAG] Step 1 (summary) done in %.2fs", time.time() - t1)
 
@@ -114,11 +105,14 @@ def run_summary_rag_pipeline(
     logger.info("[SummaryRAG] Step 3 (VS evidence) done in %.2fs | %d VS entries", time.time() - t3, len(vs_support))
 
     # — Step 4: Retrieve KG candidates ————————————————————————
+    # Use the summary retrieval text so KG search is fully summary-first.
+    # Fall back to cleaned_text if the summary is empty (e.g. fallback path).
     t4 = time.time()
+    kg_query_text = build_retrieval_text(new_card_summary).strip() or cleaned_text
     candidates: List[Dict[str, Any]] = []
     try:
         candidates = retrieve_kg_candidates(
-            cleaned_text,
+            kg_query_text,
             top_k=top_kg_candidates,
             allowed_names=allowed_value_stream_names,
         )
@@ -137,6 +131,7 @@ def run_summary_rag_pipeline(
             raw_evidence = retrieve_raw_evidence_for_tickets(
                 top_ticket_ids,
                 ticket_chunks_dir=ticket_chunks_dir,
+                query_text=kg_query_text,
             )
         except Exception as exc:
             logger.warning("[SummaryRAG] Raw evidence retrieval failed: %s", exc)
@@ -182,6 +177,22 @@ def run_summary_rag_pipeline(
         len(analog_tickets), warnings or "none",
     )
 
+    # Evaluation log: structured record for tuning and regression analysis
+    eval_log: Dict[str, Any] = {
+        "top_analogs": [
+            {"ticket_id": t.get("ticket_id"), "score": t.get("score"), "rank": t.get("rank")}
+            for t in analog_tickets
+        ],
+        "analog_scores": [t.get("score", 0.0) for t in analog_tickets],
+        "kg_candidates": [c.get("entity_name") for c in candidates],
+        "selected_value_streams": [vs.get("entity_name") for vs in final_selected],
+        "raw_evidence_count": len(raw_evidence),
+        "fallbacks_hit": [w for w in warnings if w.endswith("_failed") or "fallback" in w],
+        "warnings": warnings,
+        "timing_seconds": round(elapsed, 2),
+    }
+    logger.info("[SummaryRAG] eval_log=%s", json.dumps(eval_log, default=str))
+
     return {
         "selected_value_streams": final_selected,
         "rejected_candidates": selection_result.get("rejected_candidates", []),
@@ -203,6 +214,62 @@ def run_summary_rag_pipeline(
         "timing": {
             "total_seconds": round(elapsed, 2),
         },
+    }
+
+
+_ACTOR_KEYWORDS = [
+    "member", "provider", "broker", "employer", "plan sponsor",
+    "internal ops", "clinical", "care manager", "agent", "beneficiary",
+]
+
+_FUNCTION_KEYWORDS = [
+    "claims", "enrollment", "billing", "prior auth", "authorization",
+    "eligibility", "referral", "appeals", "grievance", "pharmacy",
+    "care management", "utilization", "network", "credentialing",
+    "payment", "risk adjustment", "quality", "reporting",
+]
+
+_DOMAIN_KEYWORDS = {
+    "clinical": ["clinical", "care", "health", "medical", "diagnosis", "treatment"],
+    "financial": ["billing", "claims", "payment", "cost", "revenue", "finance"],
+    "operational": ["process", "workflow", "efficiency", "ops", "operational"],
+    "it": ["system", "platform", "integration", "api", "migration", "data", "digital"],
+    "regulatory": ["regulatory", "compliance", "hipaa", "cms", "mandate", "audit"],
+}
+
+
+def _deterministic_fallback_summary(cleaned_text: str) -> Dict[str, Any]:
+    """
+    Build a best-effort summary using keyword heuristics when LLM summarization fails.
+
+    Extracts actors, direct functions, and domain tags from the cleaned text so
+    that FAISS and KG retrieval still have structured signals rather than only raw text.
+    """
+    lower = cleaned_text.lower()
+    lines = [ln.strip() for ln in cleaned_text.splitlines() if ln.strip()]
+
+    # Use first non-empty line as short_summary proxy (often a title)
+    first_line = lines[0] if lines else ""
+    short_summary = first_line if len(first_line) >= 20 else cleaned_text[:200]
+
+    actors = [kw.title() for kw in _ACTOR_KEYWORDS if kw in lower]
+    direct_functions = [kw.title() for kw in _FUNCTION_KEYWORDS if kw in lower]
+
+    domain_tags = [
+        domain.title()
+        for domain, signals in _DOMAIN_KEYWORDS.items()
+        if any(s in lower for s in signals)
+    ]
+
+    return {
+        "short_summary": short_summary,
+        "business_goal": lines[1] if len(lines) > 1 else "",
+        "actors": actors,
+        "direct_functions": direct_functions,
+        "implied_functions": [],
+        "change_types": [],
+        "domain_tags": domain_tags,
+        "evidence_sentences": lines[:3],
     }
 
 
