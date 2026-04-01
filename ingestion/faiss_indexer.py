@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import pathlib
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from langchain_core.documents import Document
@@ -73,9 +74,20 @@ def build_summary_index(
     vectorstore = FAISS.from_documents(documents, embeddings)
     vectorstore.save_local(index_dir)
 
-    # Also persist raw summary docs for debugging/inspection
+    # Persist raw summary docs for debugging/inspection
     with open(os.path.join(index_dir, "summary_docs.json"), "w", encoding="utf-8") as f:
         json.dump(summary_docs, f, ensure_ascii=False, indent=2)
+
+    # Persist index manifest to detect stale summaries (changed prompt/schema/model)
+    manifest = {
+        "summary_prompt_version": "1",
+        "retrieval_text_packing_version": "1",
+        "embedding_model": embeddings.model if hasattr(embeddings, "model") else "unknown",
+        "ticket_count": len(summary_docs),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    with open(os.path.join(index_dir, "index_manifest.json"), "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
 
     logger.info("Built FAISS summary index with %d documents at %s", len(documents), index_dir)
     return vectorstore
@@ -96,16 +108,22 @@ def search_summary_index(
 ) -> List[Dict[str, Any]]:
     """
     Search the summary FAISS index and return ranked analog tickets.
-    Returns a list of dicts with rank, score, ticket metadata, and retrieval text.
+
+    Score semantics: FAISS returns L2 distance (lower = more similar). We
+    normalise to a similarity score via  ``1 / (1 + distance)`` so that
+    **higher score always means more relevant** throughout the rest of the
+    pipeline.  Scores are in (0, 1].
     """
     vectorstore = load_summary_index(index_dir)
     results = vectorstore.similarity_search_with_score(query_text, k=top_k)
 
     out: List[Dict[str, Any]] = []
-    for rank, (doc, score) in enumerate(results, start=1):
+    for rank, (doc, raw_distance) in enumerate(results, start=1):
+        # Normalise: higher is always better (L2 distance → similarity)
+        similarity = round(1.0 / (1.0 + float(raw_distance)), 4)
         out.append({
             "rank": rank,
-            "score": round(float(score), 4),
+            "score": similarity,
             "ticket_id": doc.metadata.get("ticket_id", ""),
             "title": doc.metadata.get("title", ""),
             "short_summary": doc.metadata.get("short_summary", ""),
@@ -118,7 +136,7 @@ def search_summary_index(
             "value_stream_labels": doc.metadata.get("value_stream_labels", []),
             "retrieval_text": doc.page_content,
         })
-    
+
     return out
 
 

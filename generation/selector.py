@@ -150,7 +150,7 @@ def select_value_streams(
     *,
     raw_evidence: Optional[List[Dict[str, Any]]] = None,
     vs_support: Optional[List[Dict[str, Any]]] = None,
-    allowed_names: Optional[List[str]] = None,
+    allowed_value_stream_names: Optional[List[str]] = None,
     max_retries: int = 2,
 ) -> Dict[str, Any]:
     """
@@ -165,8 +165,8 @@ def select_value_streams(
         _inject_support_candidates(candidates, vs_support)
 
     # Filter to allowed if specified
-    if allowed_names:
-        allowed_set = {_norm(n) for n in allowed_names}
+    if allowed_value_stream_names:
+        allowed_set = {_norm(n) for n in allowed_value_stream_names}
         candidates = [c for c in candidates if _norm(c.get("entity_name", "")) in allowed_set]
 
     # Build prompt
@@ -207,8 +207,8 @@ def select_value_streams(
         parsed = _fallback_selection(vs_support or [], candidates)
 
     # Filter to allowed
-    if allowed_names:
-        allowed_set = {_norm(n) for n in allowed_names}
+    if allowed_value_stream_names:
+        allowed_set = {_norm(n) for n in allowed_value_stream_names}
         parsed["selected_value_streams"] = [
             vs for vs in parsed["selected_value_streams"]
             if _norm(vs.get("entity_name", "")) in allowed_set
