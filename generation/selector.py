@@ -20,7 +20,6 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
-from core.constants import CANONICAL_VALUE_STREAMS
 from core.prompts import safe_json_extract
 from core.text import normalize_for_search
 from src.services.generation_service import GenerationService
@@ -78,7 +77,6 @@ Return JSON exactly in this format:
 """
 
 def _format_new_card_summary(summary: Dict[str, Any]) -> str:
-    """Format new card summary for the prompt."""
     parts = []
     if summary.get("short_summary"):
         parts.append(f"Summary: {summary['short_summary']}")
@@ -136,7 +134,7 @@ def _format_raw_evidence(evidence: List[Dict[str, Any]]) -> str:
 
     parts = ["## RAW EVIDENCE SNIPPETS (for verification)\n"]
     for ev in evidence[:6]:
-        parts.append(f"[{ev.get('ticket_id', '?')}] {ev.get('snippet', '')}")
+        parts.append(f"- [{ev.get('ticket_id', '?')}] {ev.get('snippet', '')}")
 
     return "\n".join(parts)
 
@@ -224,6 +222,9 @@ def select_value_streams(
         "selected_value_streams": parsed.get("selected_value_streams", []),
         "rejected_candidates": parsed.get("rejected_candidates", []),
         "raw_response": raw_response,
+        "prompt_system": _SYSTEM_PROMPT,
+        "prompt_user": user_prompt,
+        "candidates_after_filter": candidates,
     }
 
 def _inject_support_candidates(
