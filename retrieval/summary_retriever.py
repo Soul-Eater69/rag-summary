@@ -3,9 +3,9 @@ Summary-first retrieval: query FAISS summary index for analog tickets,
 then optionally fetch raw chunks for top hits and KG candidates.
 
 This replaces the old "retrieve all raw chunks first" approach with:
-  1. Summary FAISS search → top analog historical tickets
-  2. KG candidate retrieval + value-stream definitions
-  3. Optional raw chunk lookup → only for top shortlisted tickets
+1. Summary FAISS search -> top analog historical tickets
+2. KG candidate retrieval + value-stream definitions
+3. Optional raw chunk lookup -> only for top shortlisted tickets
 """
 
 from __future__ import annotations
@@ -20,7 +20,6 @@ from summary_rag.ingestion.summary_generator import build_retrieval_text
 
 logger = logging.getLogger(__name__)
 
-
 def retrieve_analog_tickets(
     new_card_summary: Dict[str, Any],
     *,
@@ -33,11 +32,11 @@ def retrieve_analog_tickets(
     Returns ranked analog historical tickets with metadata and scores.
     """
     query_text = build_retrieval_text(new_card_summary)
-
+    
     if not query_text.strip():
         logger.warning("Empty retrieval text for new card summary, skipping FAISS search")
         return []
-
+        
     results = search_summary_index(query_text, index_dir=index_dir, top_k=top_k)
     logger.info(
         "FAISS summary search returned %d analog tickets (top score=%.4f)",
@@ -45,7 +44,6 @@ def retrieve_analog_tickets(
         results[0]["score"] if results else 0.0,
     )
     return results
-
 
 def retrieve_raw_evidence_for_tickets(
     ticket_ids: List[str],
@@ -62,7 +60,7 @@ def retrieve_raw_evidence_for_tickets(
     for verification, citation, and borderline candidate validation.
 
     Ranking: when ``query_text`` is provided, chunks are ranked by token
-    overlap with the query (higher overlap = more relevant).  Falls back to
+    overlap with the query (higher overlap = more relevant). Falls back to
     length-based ranking only when no query text is available.
     """
     chunks_path = pathlib.Path(ticket_chunks_dir)
@@ -72,6 +70,9 @@ def retrieve_raw_evidence_for_tickets(
     for ticket_id in ticket_ids:
         ticket_dir = chunks_path / ticket_id
         raw_chunks = _load_raw_chunks(ticket_dir)
+
+        if not raw_chunks:
+            continue
 
         if query_tokens:
             # Rank by token overlap with the query text (more relevant = higher score)
@@ -98,7 +99,6 @@ def retrieve_raw_evidence_for_tickets(
     logger.info("Retrieved %d raw evidence snippets for %d tickets", len(evidence), len(ticket_ids))
     return evidence
 
-
 def retrieve_kg_candidates(
     cleaned_text: str,
     *,
@@ -117,7 +117,6 @@ def retrieve_kg_candidates(
     candidates = _retrieve_kg(cleaned_text, top_k=top_k, allowed_names=allowed_names)
     logger.info("Retrieved %d KG candidates", len(candidates))
     return candidates
-
 
 def collect_value_stream_evidence(
     analog_tickets: List[Dict[str, Any]],
@@ -145,7 +144,7 @@ def collect_value_stream_evidence(
             vs_map_path = chunks_path / ticket_id / "08_valuestream_map.json"
             if vs_map_path.exists():
                 try:
-                    with open(vs_map_path, encoding="utf-8") as f:
+                    with open(vs_map_path, "r", encoding="utf-8") as f:
                         data = json.load(f)
                     labels = data.get("valueStreamNames", []) or []
                 except Exception:
@@ -169,6 +168,7 @@ def collect_value_stream_evidence(
                     "supporting_functions": [],
                     "supporting_actors": [],
                 }
+
             entry = vs_support[key]
             entry["support_count"] += 1
             entry["best_score"] = max(entry["best_score"], score)
@@ -185,16 +185,13 @@ def collect_value_stream_evidence(
     logger.info("Collected %d value-stream evidence entries from %d analog tickets", len(result), len(analog_tickets))
     return result
 
-
-# ----------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # Internal helpers
-# ----------------------------------------------------------------------
-
+# -----------------------------------------------------------------------------
 
 def _tokenize(text: str) -> set:
     """Return a set of lower-cased word tokens (3+ chars) for overlap scoring."""
     return {w.lower() for w in (text or "").split() if len(w) >= 3}
-
 
 def _overlap_score(chunk_text: str, query_tokens: set) -> float:
     """Fraction of query tokens that appear in the chunk text."""
@@ -203,18 +200,35 @@ def _overlap_score(chunk_text: str, query_tokens: set) -> float:
     chunk_tokens = _tokenize(chunk_text)
     return len(query_tokens & chunk_tokens) / len(query_tokens)
 
-
 def _load_raw_chunks(ticket_dir: pathlib.Path) -> List[Dict[str, Any]]:
     """Load raw chunks from a ticket directory."""
     chunks: List[Dict[str, Any]] = []
 
-    for candidate in ["03_retrieval_views.json", "04_chunks.json"]:
+    for candidate in ["07_chunks.json", "03_retrieval_views.json", "04_chunks.json"]:
         path = ticket_dir / candidate
         if not path.exists():
             continue
         try:
-            with open(path, encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
+
+            # Current format: {"chunks": [{"id": "...", "content": "..."}, ...]}
+            if candidate == "07_chunks.json" and isinstance(data, dict):
+                raw_list = data.get("chunks", [])
+                if isinstance(raw_list, list):
+                    for item in raw_list:
+                        if not isinstance(item, dict):
+                            continue
+                        text = (item.get("text") or item.get("content") or "").strip()
+                        if not text:
+                            continue
+                        chunks.append({
+                            "text": text,
+                            "chunk_id": item.get("chunk_id") or item.get("id") or "",
+                            "provenance": item.get("provenance") or "07_chunks.json",
+                        })
+                continue
+
             if isinstance(data, list):
                 chunks.extend(data)
             elif isinstance(data, dict):
