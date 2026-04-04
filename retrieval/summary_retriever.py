@@ -6,6 +6,12 @@ This replaces the old "retrieve all raw chunks first" approach with:
 1. Summary FAISS search -> top analog historical tickets
 2. KG candidate retrieval + value-stream definitions
 3. Optional raw chunk lookup -> only for top shortlisted tickets
+
+V5 additions:
+- collect_value_stream_evidence now preserves capability_tags and
+  operational_footprint from FAISS metadata for richer historical exploitation
+- collect_attachment_candidates converts raw snippets into per-VS
+  attachment source signals for CandidateEvidence
 """
 
 from __future__ import annotations
@@ -151,8 +157,18 @@ def collect_value_stream_evidence(
                     pass
 
         score = float(ticket.get("score", 0.0))
-        ticket_functions = list(ticket.get("direct_functions") or [])
+        # V5: prefer canonical functions; fall back to legacy field
+        ticket_functions = list(
+            ticket.get("direct_functions_canonical")
+            or ticket.get("direct_functions")
+            or []
+        )
         ticket_actors = list(ticket.get("actors") or [])
+        # V5: richer historical metadata
+        ticket_cap_tags = list(ticket.get("capability_tags") or [])
+        ticket_footprint = list(ticket.get("operational_footprint") or [])
+        ticket_support_type = dict(ticket.get("stream_support_type") or {})
+        ticket_supporting_evidence = list(ticket.get("supporting_evidence") or [])
 
         for label in labels:
             label = label.strip()
@@ -167,6 +183,11 @@ def collect_value_stream_evidence(
                     "supporting_ticket_ids": [],
                     "supporting_functions": [],
                     "supporting_actors": [],
+                    # V5: aggregated capability / footprint / evidence
+                    "capability_tags": [],
+                    "operational_footprint": [],
+                    "supporting_evidence": [],
+                    "stream_support_types": [],
                 }
 
             entry = vs_support[key]
@@ -180,10 +201,82 @@ def collect_value_stream_evidence(
             for actor in ticket_actors:
                 if actor and actor not in entry["supporting_actors"]:
                     entry["supporting_actors"].append(actor)
+            # V5: accumulate capability signals from each supporting analog
+            for tag in ticket_cap_tags:
+                if tag and tag not in entry["capability_tags"]:
+                    entry["capability_tags"].append(tag)
+            for fp in ticket_footprint:
+                if fp and fp not in entry["operational_footprint"]:
+                    entry["operational_footprint"].append(fp)
+            for ev in ticket_supporting_evidence:
+                if ev and ev not in entry["supporting_evidence"]:
+                    entry["supporting_evidence"].append(ev)
+            # Record how this specific analog classified the stream
+            if label in ticket_support_type:
+                entry["stream_support_types"].append(ticket_support_type[label])
 
     result = sorted(vs_support.values(), key=lambda x: (-x["support_count"], -x["best_score"]))
     logger.info("Collected %d value-stream evidence entries from %d analog tickets", len(result), len(analog_tickets))
     return result
+
+
+def collect_attachment_candidates(
+    raw_evidence: List[Dict[str, Any]],
+    analog_tickets: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """
+    Build attachment-source candidates for CandidateEvidence from raw evidence.
+
+    Strategy: for each analog ticket that contributed raw snippets, its
+    mapped value streams receive an attachment source score proportional to
+    the analog's similarity score. This is a sound proxy because:
+    - we are not inventing new VS names
+    - attachment text comes from the analog's own artifact files
+    - if the analog was relevant enough to retrieve, its raw text is
+      genuine supporting evidence for the streams it was mapped to
+
+    Returns candidates shaped for build_candidate_evidence's chunk/attachment path.
+    """
+    if not raw_evidence:
+        return []
+
+    # Build ticket_id -> snippet list map
+    ticket_snippets: Dict[str, List[str]] = {}
+    for ev in raw_evidence:
+        tid = ev.get("ticket_id", "")
+        snippet = ev.get("snippet", "")
+        if tid and snippet:
+            ticket_snippets.setdefault(tid, []).append(snippet)
+
+    # Build ticket_id -> {score, value_stream_labels} from analogs
+    analog_by_id: Dict[str, Dict[str, Any]] = {
+        t["ticket_id"]: t for t in analog_tickets if t.get("ticket_id")
+    }
+
+    candidates: List[Dict[str, Any]] = []
+    seen: set = set()
+
+    for ticket_id, snippets in ticket_snippets.items():
+        analog = analog_by_id.get(ticket_id)
+        if not analog:
+            continue
+        analog_score = float(analog.get("score", 0.0))
+        # Attachment score: attenuate the analog similarity score
+        attachment_score = round(analog_score * 0.75, 4)
+
+        for label in analog.get("value_stream_labels", []):
+            label = label.strip()
+            if not label or label in seen:
+                continue
+            seen.add(label)
+            candidates.append({
+                "entity_name": label,
+                "score": attachment_score,
+                "source": "attachment",
+                "snippets": snippets[:2],  # carry top snippets for evidence_snippets
+            })
+
+    return candidates
 
 # -----------------------------------------------------------------------------
 # Internal helpers
