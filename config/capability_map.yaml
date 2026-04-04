@@ -1,0 +1,339 @@
+version: 1
+
+capabilities:
+  compliance_privacy_audit:
+    description: >
+      Privacy, auditability, regulatory obligations, consent, controls,
+      and governance requirements.
+    direct_cues:
+      - privacy
+      - pii
+      - audit
+      - controls
+      - regulatory
+      - hipaa
+      - consent
+      - compliance
+    indirect_cues:
+      - governed data sharing
+      - policy enforcement
+      - balancing
+      - approval workflow
+      - oversight
+    canonical_functions:
+      - compliance
+      - request handling
+    promote_value_streams:
+      - Ensure Compliance
+    related_value_streams:
+      - Manage Enterprise Risk
+    weight: 1.0
+    min_signal_strength: 0.6
+
+  enterprise_risk_governance:
+    description: >
+      Enterprise risk posture, governance processes, risk controls,
+      and organizational oversight mechanisms.
+    direct_cues:
+      - risk
+      - governance
+      - control framework
+      - oversight
+      - enterprise risk
+      - policy
+      - regulatory risk
+      - audit readiness
+    indirect_cues:
+      - mitigation plan
+      - governance review
+      - risk gating
+    canonical_functions:
+      - compliance
+    promote_value_streams:
+      - Manage Enterprise Risk
+    related_value_streams:
+      - Ensure Compliance
+    weight: 0.9
+    min_signal_strength: 0.55
+
+  vendor_partner_onboarding:
+    description: >
+      Signals related to onboarding, partner/vendor integration, setup,
+      contracting, and external ecosystem participation.
+    direct_cues:
+      - vendor onboarding
+      - partner onboarding
+      - contracting
+      - vendor integration
+      - eligibility handoff
+    indirect_cues:
+      - third-party workflow
+      - external handoff
+      - delegated operations
+    canonical_functions:
+      - vendor integration
+      - onboarding
+      - eligibility
+    promote_value_streams:
+      - Onboard Partner
+      - Establish Provider Program
+    related_value_streams:
+      - Establish Provider Network
+    weight: 0.9
+    min_signal_strength: 0.5
+
+  billing_order_to_cash:
+    description: >
+      Billing, invoicing, payment, remittance, financial operations,
+      and commercialization-related transaction flows.
+    direct_cues:
+      - billing
+      - invoice
+      - payment
+      - remittance
+      - collections
+      - premium
+    indirect_cues:
+      - financial adjustment
+      - settlement
+      - payment execution
+      - revenue flow
+    canonical_functions:
+      - billing
+      - payment
+      - quote/rating
+    promote_value_streams:
+      - Order to Cash for Group Coverage
+      - Manage Invoice and Payment Receipt
+      - Issue Payment
+    related_value_streams:
+      - Configure Price and Quote
+    weight: 0.95
+    min_signal_strength: 0.55
+
+  enrollment_quoting:
+    description: >
+      Quoting, pricing configuration, enrollment, and plan selection flows.
+    direct_cues:
+      - enrollment
+      - enrolment
+      - quoting
+      - quote
+      - pricing
+      - rate card
+      - sell
+      - configure price
+      - configure quote
+    indirect_cues:
+      - plan selection
+      - quote workflow
+      - broker enrollment
+    canonical_functions:
+      - quote/rating
+      - enrollment
+    promote_value_streams:
+      - Sell and Enroll
+      - Configure Price and Quote
+    related_value_streams:
+      - Manage Leads and Opportunities
+    weight: 0.85
+    min_signal_strength: 0.5
+
+  product_launch_commercialization:
+    description: >
+      New product launches, product setup, commercialization, and
+      go-to-market capability rollouts.
+    direct_cues:
+      - product launch
+      - new product
+      - commercialization
+      - product offering
+      - go-to-market
+      - product setup
+    indirect_cues:
+      - market entry
+      - product rollout
+      - product expansion
+    canonical_functions:
+      - product setup
+      - onboarding
+    promote_value_streams:
+      - Establish Product Offering
+    related_value_streams:
+      - Manage Leads and Opportunities
+      - Sell and Enroll
+    weight: 0.9
+    min_signal_strength: 0.5
+
+  member_engagement_outreach:
+    description: >
+      Member outreach, engagement programs, communication campaigns,
+      and member experience initiatives.
+    direct_cues:
+      - outreach
+      - engagement
+      - member communication
+      - campaign
+      - member experience
+    indirect_cues:
+      - wellness program
+      - health promotion
+      - member notification
+    canonical_functions:
+      - outreach
+      - care workflow
+    promote_value_streams:
+      - Perform Engagement
+    related_value_streams:
+      - Manage Member Care
+    weight: 0.85
+    min_signal_strength: 0.5
+
+  care_management_clinical:
+    description: >
+      Care management workflows, clinical programs, utilization management,
+      and health services coordination.
+    direct_cues:
+      - care management
+      - clinical program
+      - utilization management
+      - care coordination
+      - treatment plan
+      - case management
+    indirect_cues:
+      - health services
+      - care workflow
+      - clinical operations
+      - discharge planning
+    canonical_functions:
+      - care workflow
+      - authorization
+    promote_value_streams:
+      - Manage Member Care
+    related_value_streams:
+      - Perform Engagement
+    weight: 0.9
+    min_signal_strength: 0.5
+
+  claims_adjudication:
+    description: >
+      Claims processing, adjudication, claims lifecycle, and
+      payment determination.
+    direct_cues:
+      - claims processing
+      - adjudication
+      - claims lifecycle
+      - claim submission
+      - claims payment
+    indirect_cues:
+      - claims workflow
+      - denial management
+      - claims audit
+    canonical_functions:
+      - claims processing
+      - payment
+    promote_value_streams:
+      - Process Claims
+    related_value_streams:
+      - Issue Payment
+      - Manage Invoice and Payment Receipt
+    weight: 0.9
+    min_signal_strength: 0.5
+
+  portal_request_resolution:
+    description: >
+      Portal access, self-service capabilities, request handling,
+      inquiry resolution, and digital front-door services.
+    direct_cues:
+      - portal
+      - self-service
+      - request handling
+      - inquiry
+      - member portal
+      - provider portal
+    indirect_cues:
+      - digital front door
+      - online access
+      - request resolution
+    canonical_functions:
+      - portal access
+      - request handling
+    promote_value_streams:
+      - Resolve Request Inquiry
+    related_value_streams: []
+    weight: 0.85
+    min_signal_strength: 0.5
+
+  analytics_reporting:
+    description: >
+      Business analytics, reporting capabilities, data insights,
+      and decision-support tooling.
+    direct_cues:
+      - analytics
+      - reporting
+      - business insights
+      - dashboard
+      - data visualization
+    indirect_cues:
+      - data-driven
+      - metrics
+      - kpi
+      - performance reporting
+    canonical_functions:
+      - analytics
+      - reporting
+    promote_value_streams:
+      - Discover Business Insights
+    related_value_streams: []
+    weight: 0.8
+    min_signal_strength: 0.5
+
+  provider_network:
+    description: >
+      Provider network establishment, network adequacy,
+      credentialing, and provider program management.
+    direct_cues:
+      - provider network
+      - network adequacy
+      - credentialing
+      - provider directory
+      - network expansion
+    indirect_cues:
+      - provider group
+      - network growth
+      - provider enablement
+    canonical_functions:
+      - network management
+      - credentialing
+    promote_value_streams:
+      - Establish Provider Network
+    related_value_streams:
+      - Establish Provider Program
+      - Onboard Partner
+    weight: 0.85
+    min_signal_strength: 0.5
+
+  leads_opportunities:
+    description: >
+      Sales pipeline, lead management, opportunity tracking,
+      and business development activities.
+    direct_cues:
+      - leads
+      - opportunities
+      - sales pipeline
+      - business development
+      - rfp
+      - prospect
+    indirect_cues:
+      - sales cycle
+      - account management
+      - client acquisition
+    canonical_functions:
+      - onboarding
+    promote_value_streams:
+      - Manage Leads and Opportunities
+    related_value_streams:
+      - Sell and Enroll
+      - Configure Price and Quote
+    weight: 0.8
+    min_signal_strength: 0.55
