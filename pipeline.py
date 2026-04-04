@@ -41,6 +41,11 @@ from summary_rag.generation.capability_mapper import map_capabilities_to_candida
 from summary_rag.generation.candidate_evidence import build_candidate_evidence
 from summary_rag.generation.fusion import compute_fused_scores, apply_candidate_floor
 from summary_rag.generation.selector import select_value_streams
+from summary_rag.generation.card_candidates import (
+    extract_summary_candidates,
+    extract_chunk_candidates,
+    extract_historical_footprint_candidates,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -216,6 +221,35 @@ def run_summary_rag_pipeline(
             "enriched_candidates_count": len(enriched_candidates),
         }
 
+    # -- Step 5b: Card-level summary + chunk + footprint candidates ----------
+    # These populate the summary, chunk, and additional historical source slots
+    # in CandidateEvidence so they are non-zero when the card has explicit signals.
+    allowed_set = (
+        set(allowed_value_stream_names) if allowed_value_stream_names else None
+    )
+    summary_candidates = extract_summary_candidates(
+        new_card_summary, allowed_names=allowed_set
+    )
+    chunk_candidates = extract_chunk_candidates(
+        cleaned_text, allowed_names=allowed_set
+    )
+    # Historical footprint: infer additional pattern candidates from analog
+    # capability_tags -- "what did similar tickets need downstream?"
+    footprint_candidates = extract_historical_footprint_candidates(
+        analog_tickets, allowed_names=allowed_set
+    )
+    logger.info(
+        "[SummaryRAG] Step 5b (card candidates) | summary=%d | chunk=%d | footprint=%d",
+        len(summary_candidates), len(chunk_candidates), len(footprint_candidates),
+    )
+    if trace_mode:
+        trace["step5b_card_candidates"] = {
+            "label": "Card-Level Summary / Chunk / Footprint Candidates",
+            "summary_candidates": summary_candidates,
+            "chunk_candidates": chunk_candidates,
+            "footprint_candidates": footprint_candidates,
+        }
+
     # -- Step 7: Optional raw evidence for top tickets (BEFORE evidence build) --
     # Must happen here so attachment snippets become a real CandidateEvidence source.
     raw_evidence: List[Dict[str, Any]] = []
@@ -277,12 +311,21 @@ def run_summary_rag_pipeline(
     # Attachment candidates derived from raw evidence snippets
     attachment_candidates = collect_attachment_candidates(raw_evidence, analog_tickets)
 
+    # footprint_candidates contribute to the historical source alongside
+    # vs_support-derived historical_candidates
+    all_historical = historical_candidates + footprint_candidates
+
     candidate_evidence = build_candidate_evidence(
         kg_candidates=kg_for_evidence,
-        historical_candidates=historical_candidates,
+        historical_candidates=all_historical,
         capability_candidates=capability_mapping.get("capability_candidates", []),
+        chunk_candidates=chunk_candidates,
         attachment_candidates=attachment_candidates,
+        # summary_candidates go into summary source slot
     )
+    # Inject summary candidates separately so they land in SOURCE_SUMMARY
+    from summary_rag.generation.candidate_evidence import SOURCE_SUMMARY
+    _inject_summary_candidates(candidate_evidence, summary_candidates)
 
     logger.info(
         "[SummaryRAG] Step 8 (CandidateEvidence) done in %.2fs | %d candidates | attachment_source=%d",
@@ -410,6 +453,9 @@ def run_summary_rag_pipeline(
         "no_evidence": [vs.get("entity_name") for vs in no_evidence],
         "selected_value_streams": [vs.get("entity_name") for vs in final_selected],
         "attachment_candidates_count": len(attachment_candidates),
+        "summary_candidates_count": len(summary_candidates),
+        "chunk_candidates_count": len(chunk_candidates),
+        "footprint_candidates_count": len(footprint_candidates),
         "raw_evidence_count": len(raw_evidence),
         "warnings": warnings,
         "timing_seconds": round(elapsed, 2),
@@ -471,6 +517,59 @@ def run_summary_rag_pipeline(
             if trace_mode else {}
         ),
     }
+
+
+def _inject_summary_candidates(
+    candidate_evidence: List[Dict[str, Any]],
+    summary_candidates: List[Dict[str, Any]],
+) -> None:
+    """
+    Merge summary-source candidates into existing CandidateEvidence objects.
+
+    For candidates already present (by name), update their summary source score.
+    For new names, append a new CandidateEvidence entry with only summary score set.
+    """
+    from summary_rag.generation.candidate_evidence import (
+        SOURCE_SUMMARY, ALL_SOURCES, _classify_support_type
+    )
+    from summary_rag.ingestion.adapters import normalize_text as _norm
+
+    by_name = {_norm(c.get("candidate_name", "")): c for c in candidate_evidence}
+
+    for sc in summary_candidates:
+        name = (sc.get("entity_name") or "").strip()
+        key = _norm(name)
+        if not name or not key:
+            continue
+        score = float(sc.get("score") or 0.0)
+
+        if key in by_name:
+            entry = by_name[key]
+            entry["source_scores"][SOURCE_SUMMARY] = max(
+                entry["source_scores"].get(SOURCE_SUMMARY, 0.0), score
+            )
+            if SOURCE_SUMMARY not in entry.get("evidence_sources", []):
+                entry.setdefault("evidence_sources", []).append(SOURCE_SUMMARY)
+        else:
+            new_entry: Dict[str, Any] = {
+                "candidate_id": "",
+                "candidate_name": name,
+                "source_scores": {s: 0.0 for s in ALL_SOURCES},
+                "evidence_sources": [SOURCE_SUMMARY],
+                "evidence_snippets": [],
+                "fused_score": 0.0,
+                "support_confidence": 0.0,
+                "source_diversity_count": 1,
+                "support_type": "direct",
+                "contradictions": [],
+            }
+            new_entry["source_scores"][SOURCE_SUMMARY] = score
+            candidate_evidence.append(new_entry)
+            by_name[key] = new_entry
+
+    # Recompute support_type for any updated entries
+    for entry in candidate_evidence:
+        entry["support_type"] = _classify_support_type(entry)
 
 
 def _normalize_kg_score(candidate: Dict[str, Any]) -> float:

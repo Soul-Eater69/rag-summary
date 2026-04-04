@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Set
 
-from core.text import normalize_for_search
+from summary_rag.ingestion.adapters import normalize_text as normalize_for_search
 
 logger = logging.getLogger(__name__)
 

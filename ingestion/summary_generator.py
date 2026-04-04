@@ -14,10 +14,9 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from src.services.generation_service import GenerationService
-from core.prompts import safe_json_extract
 from .schema import SummaryDoc
 from .function_normalizer import normalize_functions
+from .adapters import LLMService, get_default_llm, safe_json_extract
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +125,8 @@ def generate_ticket_summary(
     title: str,
     value_stream_labels: List[str],
     model: str = "gpt-5-mini-idp",
+    *,
+    llm: Optional[LLMService] = None,
 ) -> SummaryDoc:
     """Use LLM to generate a structured summary of a historical ticket."""
     prompt = _HISTORICAL_SUMMARY_USER.format(
@@ -135,9 +136,9 @@ def generate_ticket_summary(
         ticket_text=ticket_text[:6000],
     )
 
-    gen_svc = GenerationService()
+    svc = llm or get_default_llm()
     try:
-        reply = gen_svc.generate(
+        reply = svc.generate(
             query=prompt,
             context="",
             system_prompt=_HISTORICAL_SUMMARY_SYSTEM,
@@ -162,15 +163,17 @@ def generate_ticket_summary(
 def generate_new_card_summary(
     ppt_text: str,
     model: str = "gpt-5-mini-idp",
+    *,
+    llm: Optional[LLMService] = None,
 ) -> SummaryDoc:
     """Use LLM to generate a structured summary of a new idea card."""
     prompt = _IDEA_CARD_SUMMARY_USER.format(
         ppt_text=ppt_text[:6000]
     )
 
-    gen_svc = GenerationService()
+    svc = llm or get_default_llm()
     try:
-        reply = gen_svc.generate(
+        reply = svc.generate(
             query=prompt,
             context="",
             system_prompt=_IDEA_CARD_SUMMARY_SYSTEM,

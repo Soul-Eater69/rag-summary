@@ -14,6 +14,14 @@ from .function_normalizer import (
     normalize_functions,
     FUNCTION_VOCAB,
 )
+from .adapters import (
+    LLMService,
+    EmbeddingService,
+    KGRetrievalService,
+    get_default_llm,
+    get_default_embedding,
+    get_default_kg,
+)
 
 __all__ = [
     "SummaryDoc",
