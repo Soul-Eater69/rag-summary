@@ -3,16 +3,17 @@ Summary-first RAG pipeline orchestrator (V5 architecture).
 
 End-to-end flow:
 1.  Clean + normalize new card text
-2.  Generate semantic summary for new card (with raw + canonical functions)
+2.  Generate semantic summary (raw + canonical functions, capability tags)
 3.  Search FAISS summary index for top analog historical tickets
-4.  Collect VS evidence from analog tickets
+4.  Collect VS evidence from analogs (including capability_tags, footprint)
 5.  Retrieve KG candidate value streams
-6.  Capability mapping candidate enrichment
-7.  Build CandidateEvidence objects from all sources
-8.  Source-aware fused ranking + candidate floor guardrail
-9.  Optional: fetch raw chunks for top shortlisted tickets
+6.  Capability mapping enrichment
+7.  (Optional) Fetch raw chunks for top tickets  ← moved BEFORE evidence build
+8.  Build CandidateEvidence objects from all sources
+    (KG, historical, capability, attachment)
+9.  Source-aware fused ranking + candidate floor guardrail
 10. Two-pass LLM verifier (evidence verification + 3-class selection)
-11. Finalize and return structured result
+11. Finalize structured 3-class result
 """
 
 from __future__ import annotations
@@ -33,8 +34,9 @@ from summary_rag.retrieval import (
     retrieve_analog_tickets,
     retrieve_raw_evidence_for_tickets,
     retrieve_kg_candidates,
+    collect_value_stream_evidence,
+    collect_attachment_candidates,
 )
-from summary_rag.retrieval.summary_retriever import collect_value_stream_evidence
 from summary_rag.generation.capability_mapper import map_capabilities_to_candidates
 from summary_rag.generation.candidate_evidence import build_candidate_evidence
 from summary_rag.generation.fusion import compute_fused_scores, apply_candidate_floor
@@ -214,79 +216,11 @@ def run_summary_rag_pipeline(
             "enriched_candidates_count": len(enriched_candidates),
         }
 
-    # -- Step 6: Build CandidateEvidence objects -----------------------
-    t6 = time.time()
-
-    # Prepare historical candidates from VS support
-    historical_candidates = [
-        {
-            "entity_name": s.get("entity_name", ""),
-            "score": float(s.get("best_score") or 0.0),
-            "supporting_evidence": s.get("supporting_functions", []),
-        }
-        for s in vs_support
-    ]
-
-    # Prepare KG candidates with normalized scores
-    kg_for_evidence = [
-        {
-            "entity_name": c.get("entity_name", ""),
-            "entity_id": c.get("entity_id", ""),
-            "score": _normalize_kg_score(c),
-            "description": (c.get("description") or "")[:200],
-        }
-        for c in kg_candidates
-    ]
-
-    candidate_evidence = build_candidate_evidence(
-        kg_candidates=kg_for_evidence,
-        historical_candidates=historical_candidates,
-        capability_candidates=capability_mapping.get("capability_candidates", []),
-    )
-
-    logger.info("[SummaryRAG] Step 6 (CandidateEvidence) done in %.2fs | %d candidates", time.time() - t6, len(candidate_evidence))
-    if trace_mode:
-        trace["step6_candidate_evidence"] = {
-            "label": "CandidateEvidence Objects",
-            "timing_s": round(time.time() - t6, 2),
-            "candidates_count": len(candidate_evidence),
-            "candidates_preview": [
-                {
-                    "name": c.get("candidate_name"),
-                    "support_type": c.get("support_type"),
-                    "diversity": c.get("source_diversity_count"),
-                    "sources": c.get("evidence_sources"),
-                }
-                for c in candidate_evidence[:15]
-            ],
-        }
-
-    # -- Step 7: Source-aware fused ranking + candidate floor -----------
-    t7 = time.time()
-    fused_candidates = compute_fused_scores(candidate_evidence)
-    fused_candidates = apply_candidate_floor(fused_candidates, min_candidates=min_candidate_floor)
-
-    logger.info("[SummaryRAG] Step 7 (fusion) done in %.2fs | %d candidates after floor", time.time() - t7, len(fused_candidates))
-    if trace_mode:
-        trace["step7_fusion"] = {
-            "label": "Source-Aware Fused Ranking",
-            "timing_s": round(time.time() - t7, 2),
-            "candidates_count": len(fused_candidates),
-            "top_candidates": [
-                {
-                    "name": c.get("candidate_name"),
-                    "fused_score": c.get("fused_score"),
-                    "support_type": c.get("support_type"),
-                    "source_scores": c.get("source_scores"),
-                }
-                for c in fused_candidates[:10]
-            ],
-        }
-
-    # -- Step 8: Optional raw evidence for top tickets -----------------
+    # -- Step 7: Optional raw evidence for top tickets (BEFORE evidence build) --
+    # Must happen here so attachment snippets become a real CandidateEvidence source.
     raw_evidence: List[Dict[str, Any]] = []
     if include_raw_evidence and analog_tickets:
-        t8 = time.time()
+        t7 = time.time()
         top_ticket_ids = [
             t["ticket_id"] for t in analog_tickets[:max_raw_evidence_tickets]
             if t.get("ticket_id")
@@ -300,18 +234,101 @@ def run_summary_rag_pipeline(
         except Exception as exc:
             logger.warning("[SummaryRAG] Raw evidence retrieval failed: %s", exc)
 
-        logger.info("[SummaryRAG] Step 8 (raw evidence) done in %.2fs | %d snippets", time.time() - t8, len(raw_evidence))
+        logger.info("[SummaryRAG] Step 7 (raw evidence) done in %.2fs | %d snippets", time.time() - t7, len(raw_evidence))
         if trace_mode:
-            trace["step8_raw_evidence"] = {
-                "label": "Raw Evidence Snippets",
-                "timing_s": round(time.time() - t8, 2),
+            trace["step7_raw_evidence"] = {
+                "label": "Raw Evidence Snippets (attachment source)",
+                "timing_s": round(time.time() - t7, 2),
                 "tickets_queried": top_ticket_ids,
                 "snippets_count": len(raw_evidence),
                 "snippets": raw_evidence,
             }
 
-    # -- Step 9: Two-pass LLM verifier ---------------------------------
-    t9 = time.time()
+    # -- Step 8: Build CandidateEvidence objects from all sources ----------
+    t8 = time.time()
+
+    # Historical candidates: include V5 capability/footprint from FAISS metadata
+    historical_candidates = [
+        {
+            "entity_name": s.get("entity_name", ""),
+            "score": float(s.get("best_score") or 0.0),
+            # supporting_evidence carries functions + any explicit evidence snippets
+            "supporting_evidence": (
+                s.get("supporting_evidence", []) or s.get("supporting_functions", [])
+            ),
+            # V5 metadata for richer evidence context
+            "capability_tags": s.get("capability_tags", []),
+            "operational_footprint": s.get("operational_footprint", []),
+        }
+        for s in vs_support
+    ]
+
+    # KG candidates with normalized scores
+    kg_for_evidence = [
+        {
+            "entity_name": c.get("entity_name", ""),
+            "entity_id": c.get("entity_id", ""),
+            "score": _normalize_kg_score(c),
+            "description": (c.get("description") or "")[:200],
+        }
+        for c in kg_candidates
+    ]
+
+    # Attachment candidates derived from raw evidence snippets
+    attachment_candidates = collect_attachment_candidates(raw_evidence, analog_tickets)
+
+    candidate_evidence = build_candidate_evidence(
+        kg_candidates=kg_for_evidence,
+        historical_candidates=historical_candidates,
+        capability_candidates=capability_mapping.get("capability_candidates", []),
+        attachment_candidates=attachment_candidates,
+    )
+
+    logger.info(
+        "[SummaryRAG] Step 8 (CandidateEvidence) done in %.2fs | %d candidates | attachment_source=%d",
+        time.time() - t8, len(candidate_evidence), len(attachment_candidates),
+    )
+    if trace_mode:
+        trace["step8_candidate_evidence"] = {
+            "label": "CandidateEvidence Objects (all sources)",
+            "timing_s": round(time.time() - t8, 2),
+            "candidates_count": len(candidate_evidence),
+            "attachment_candidates_count": len(attachment_candidates),
+            "candidates_preview": [
+                {
+                    "name": c.get("candidate_name"),
+                    "support_type": c.get("support_type"),
+                    "diversity": c.get("source_diversity_count"),
+                    "sources": c.get("evidence_sources"),
+                }
+                for c in candidate_evidence[:15]
+            ],
+        }
+
+    # -- Step 9: Source-aware fused ranking + candidate floor -----------
+    t9a = time.time()
+    fused_candidates = compute_fused_scores(candidate_evidence)
+    fused_candidates = apply_candidate_floor(fused_candidates, min_candidates=min_candidate_floor)
+
+    logger.info("[SummaryRAG] Step 9a (fusion) done in %.2fs | %d candidates after floor", time.time() - t9a, len(fused_candidates))
+    if trace_mode:
+        trace["step9a_fusion"] = {
+            "label": "Source-Aware Fused Ranking",
+            "timing_s": round(time.time() - t9a, 2),
+            "candidates_count": len(fused_candidates),
+            "top_candidates": [
+                {
+                    "name": c.get("candidate_name"),
+                    "fused_score": c.get("fused_score"),
+                    "support_type": c.get("support_type"),
+                    "source_scores": c.get("source_scores"),
+                }
+                for c in fused_candidates[:10]
+            ],
+        }
+
+    # -- Step 9b: Two-pass LLM verifier ---------------------------------
+    t9b = time.time()
     selection_result = select_value_streams(
         new_card_summary=new_card_summary,
         analog_tickets=analog_tickets,
@@ -322,16 +339,16 @@ def run_summary_rag_pipeline(
     )
 
     logger.info(
-        "[SummaryRAG] Step 9 (LLM verifier) done in %.2fs | direct=%d | pattern=%d | no_evidence=%d",
-        time.time() - t9,
+        "[SummaryRAG] Step 9b (LLM verifier) done in %.2fs | direct=%d | pattern=%d | no_evidence=%d",
+        time.time() - t9b,
         len(selection_result.get("directly_supported", [])),
         len(selection_result.get("pattern_inferred", [])),
         len(selection_result.get("no_evidence", [])),
     )
     if trace_mode:
-        trace["step9_llm_selection"] = {
+        trace["step9b_llm_selection"] = {
             "label": "Two-Pass LLM Verifier + Selection",
-            "timing_s": round(time.time() - t9, 2),
+            "timing_s": round(time.time() - t9b, 2),
             "system_prompt": selection_result.get("prompt_system", ""),
             "user_prompt": selection_result.get("prompt_user", ""),
             "candidates_sent_to_llm": len(fused_candidates),
@@ -341,25 +358,39 @@ def run_summary_rag_pipeline(
             "no_evidence_count": len(selection_result.get("no_evidence", [])),
         }
 
-    # -- Step 10: Finalize selected value streams ----------------------
+    # -- Step 10: Finalize 3-class output -----------------------------
+    # Build final_selected from the 3-class output directly (not from the
+    # compat selected_value_streams field) to ensure the 3-class contract
+    # is the authoritative source of truth.
     seen_names: set[str] = set()
-    final_selected: List[Dict[str, Any]] = []
-    for vs in selection_result.get("selected_value_streams", []):
-        cleaned_name = _clean_value_stream_name(vs.get("entity_name") or "")
-        if not cleaned_name:
-            continue
-        vs_key = _value_stream_key(cleaned_name)
-        if not vs_key or vs_key in seen_names:
-            continue
-        seen_names.add(vs_key)
-        final_selected.append({**vs, "entity_name": cleaned_name})
+
+    def _dedup_vs_list(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        out = []
+        for vs in items:
+            cleaned = _clean_value_stream_name(vs.get("entity_name") or "")
+            if not cleaned:
+                continue
+            key = _value_stream_key(cleaned)
+            if not key or key in seen_names:
+                continue
+            seen_names.add(key)
+            out.append({**vs, "entity_name": cleaned})
+        return out
+
+    directly_supported = _dedup_vs_list(selection_result.get("directly_supported", []))
+    pattern_inferred = _dedup_vs_list(selection_result.get("pattern_inferred", []))
+    no_evidence = selection_result.get("no_evidence", [])
+
+    # Flat union (direct first, then pattern) for compat consumers
+    final_selected = directly_supported + pattern_inferred
 
     elapsed = time.time() - t_start
     logger.info(
-        "[SummaryRAG] DONE in %.2fs | selected=%d (direct=%d, pattern=%d) | analogs=%d | warnings=%s",
-        elapsed, len(final_selected),
-        len(selection_result.get("directly_supported", [])),
-        len(selection_result.get("pattern_inferred", [])),
+        "[SummaryRAG] DONE in %.2fs | direct=%d | pattern=%d | no_evidence=%d | analogs=%d | warnings=%s",
+        elapsed,
+        len(directly_supported),
+        len(pattern_inferred),
+        len(no_evidence),
         len(analog_tickets), warnings or "none",
     )
 
@@ -374,10 +405,11 @@ def run_summary_rag_pipeline(
         "promoted_value_streams": capability_mapping.get("promoted_value_streams", []),
         "candidate_evidence_count": len(candidate_evidence),
         "fused_candidates_count": len(fused_candidates),
-        "directly_supported": [vs.get("entity_name") for vs in selection_result.get("directly_supported", [])],
-        "pattern_inferred": [vs.get("entity_name") for vs in selection_result.get("pattern_inferred", [])],
-        "no_evidence": [vs.get("entity_name") for vs in selection_result.get("no_evidence", [])],
+        "directly_supported": [vs.get("entity_name") for vs in directly_supported],
+        "pattern_inferred": [vs.get("entity_name") for vs in pattern_inferred],
+        "no_evidence": [vs.get("entity_name") for vs in no_evidence],
         "selected_value_streams": [vs.get("entity_name") for vs in final_selected],
+        "attachment_candidates_count": len(attachment_candidates),
         "raw_evidence_count": len(raw_evidence),
         "warnings": warnings,
         "timing_seconds": round(elapsed, 2),
@@ -401,12 +433,12 @@ def run_summary_rag_pipeline(
         )
 
     return {
-        # V5 three-class output
-        "directly_supported": selection_result.get("directly_supported", []),
-        "pattern_inferred": selection_result.get("pattern_inferred", []),
-        "no_evidence": selection_result.get("no_evidence", []),
+        # V5 three-class output (authoritative)
+        "directly_supported": directly_supported,
+        "pattern_inferred": pattern_inferred,
+        "no_evidence": no_evidence,
 
-        # Compat: flat selected list (direct + pattern)
+        # Compat: flat selected list (direct + pattern, deduplicated)
         "selected_value_streams": final_selected,
         "rejected_candidates": selection_result.get("rejected_candidates", []),
 
