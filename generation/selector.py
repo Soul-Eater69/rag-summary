@@ -26,9 +26,12 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
-from core.prompts import safe_json_extract
-from core.text import normalize_for_search
-from src.services.generation_service import GenerationService
+from summary_rag.ingestion.adapters import (
+    LLMService,
+    get_default_llm,
+    safe_json_extract,
+    normalize_text as normalize_for_search,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +150,14 @@ def _format_analog_summaries(analogs: List[Dict[str, Any]], limit: int = 5) -> s
         cap_tags = analog.get("capability_tags", [])
         if cap_tags:
             lines.append(f"  Capabilities: {', '.join(cap_tags)}")
+        footprint = analog.get("operational_footprint", [])
+        if footprint:
+            lines.append(f"  Footprint: {', '.join(footprint[:6])}")
+        # Show stream support classification if available (direct/downstream/pattern)
+        sst = analog.get("stream_support_type") or {}
+        if sst:
+            sst_summary = ", ".join(f"{k}:{v}" for k, v in list(sst.items())[:4])
+            lines.append(f"  Support types: {sst_summary}")
         parts.append("\n".join(lines))
 
     return "\n\n".join(parts)
@@ -202,6 +213,7 @@ def select_value_streams(
     vs_support: Optional[List[Dict[str, Any]]] = None,
     allowed_value_stream_names: Optional[List[str]] = None,
     max_retries: int = 2,
+    llm: Optional[LLMService] = None,
 ) -> Dict[str, Any]:
     """
     Two-pass LLM evidence verification and value stream selection.
@@ -232,7 +244,7 @@ def select_value_streams(
         raw_evidence_section=_format_raw_evidence(raw_evidence or []),
     )
 
-    gen_svc = GenerationService()
+    gen_svc = llm or get_default_llm()
     parsed: Optional[Dict] = None
     raw_response: Optional[str] = None
 

@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional
 
 from langchain_core.documents import Document
 
-from src.clients.embedding import EmbeddingClient
+from .adapters import EmbeddingService, get_default_embedding
 from .summary_generator import (
     build_retrieval_text,
     generate_ticket_summary,
@@ -81,13 +81,15 @@ def _make_document(summary_doc: Dict[str, Any]) -> Document:
 def build_summary_index(
     summary_docs: List[Dict[str, Any]],
     index_dir: str = DEFAULT_INDEX_DIR,
+    *,
+    embedding: Optional[EmbeddingService] = None,
 ) -> Any:
     """Build a FAISS index from a list of summary dicts and persist to disk."""
     from langchain_community.vectorstores import FAISS
 
     os.makedirs(index_dir, exist_ok=True)
     documents = [_make_document(doc) for doc in summary_docs]
-    embeddings = EmbeddingClient()
+    embeddings = embedding or get_default_embedding()
     vectorstore = FAISS.from_documents(documents, embeddings)
     vectorstore.save_local(index_dir)
 
@@ -95,11 +97,12 @@ def build_summary_index(
     with open(os.path.join(index_dir, "summary_docs.json"), "w", encoding="utf-8") as f:
         json.dump(summary_docs, f, ensure_ascii=False, indent=2)
 
-    # Persist index manifest to detect stale summaries (changed prompt/schema/model)
+    # Persist index manifest
     manifest = {
-        "summary_prompt_version": "1",
-        "retrieval_text_packing_version": "1",
-        "embedding_model": embeddings.model if hasattr(embeddings, "model") else "unknown",
+        "schema_version": "2",          # V5 schema with richer fields
+        "summary_prompt_version": "2",  # V5 prompts (raw+canonical functions)
+        "retrieval_text_packing_version": "2",
+        "embedding_model": getattr(embeddings, "model", "unknown"),
         "ticket_count": len(summary_docs),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -110,11 +113,15 @@ def build_summary_index(
     return vectorstore
 
 
-def load_summary_index(index_dir: str = DEFAULT_INDEX_DIR) -> Any:
+def load_summary_index(
+    index_dir: str = DEFAULT_INDEX_DIR,
+    *,
+    embedding: Optional[EmbeddingService] = None,
+) -> Any:
     """Load a previously persisted FAISS summary index."""
     from langchain_community.vectorstores import FAISS
 
-    embeddings = EmbeddingClient()
+    embeddings = embedding or get_default_embedding()
     return FAISS.load_local(index_dir, embeddings, allow_dangerous_deserialization=True)
 
 
