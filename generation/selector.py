@@ -1,16 +1,22 @@
 """
-LLM value-stream selector: builds a compact evidence package and asks the LLM
-to pick the best-matching value streams.
+Two-pass LLM value-stream verifier and selector (V5 architecture).
+
+Pass 1: Evidence verification -- for each candidate, verify evidence and
+        classify as direct/pattern/none.
+Pass 2: Final selection -- bucket into directly_supported, pattern_inferred,
+        and no_evidence.
 
 Input:
   - new card semantic summary
-  - KG candidate value streams
+  - CandidateEvidence objects with fused scores
   - top historical analog summaries (from FAISS)
   - optional raw evidence snippets
 
 Output:
-  - selected_value_streams with confidence + reason
-  - rejected_candidates with reason
+  - directly_supported: list with confidence + evidence
+  - pattern_inferred: list with confidence + evidence
+  - no_evidence: list
+  - raw_response: str
 """
 
 from __future__ import annotations
@@ -29,17 +35,22 @@ logger = logging.getLogger(__name__)
 _SYSTEM_PROMPT = """You are an expert at classifying healthcare idea cards into existing HCSC value streams.
 
 You will receive:
-1. A semantic summary of a new idea card
+1. A semantic summary of a new idea card (with direct and implied functions)
 2. Top analogous historical tickets (from a summary index)
-3. Candidate value streams with descriptions
+3. Candidate value streams with evidence scores from multiple sources
 
-Your job: select the value streams that best match the new idea card.
+Your job: verify the evidence for each candidate and classify them into three buckets.
 
 Rules:
 - Choose ONLY from the candidate value streams provided.
 - Do NOT invent, rename, or merge value streams.
-- Prefer recall over precision - include a value stream if there is reasonable evidence.
-- Use the historical analog summaries as supporting evidence, not as the sole basis.
+- Classify each candidate into exactly one of:
+  - "directly_supported": strong direct evidence from card text, summary, attachments, or KG semantics
+  - "pattern_inferred": supported mainly by historical analogs, capability mapping, or co-occurrence patterns
+  - "no_evidence": insufficient current evidence to justify prediction
+- Prefer recall over precision -- include a stream if there is reasonable evidence.
+- Use historical analogs as supporting evidence for pattern inference, not sole basis for direct support.
+- For each selected stream, cite the specific evidence that justifies it.
 - Return valid JSON only.
 """
 
@@ -52,29 +63,41 @@ _USER_PROMPT_TEMPLATE = """
 
 {analog_summaries}
 
-## CANDIDATE VALUE STREAMS
+## CANDIDATE VALUE STREAMS WITH EVIDENCE
 
-{candidate_list}
+{candidate_evidence}
 
 {raw_evidence_section}
 
 ## INSTRUCTIONS
 
-Select the best-matching value streams for this idea card from the candidates above.
-Consider what the historical analogs were mapped to as supporting evidence.
+For each candidate value stream above, verify the evidence and classify it.
 
 Return JSON exactly in this format:
 {{
-  "selected_value_streams": [
+  "directly_supported": [
     {{
-      "entity_id": "string",
       "entity_name": "string",
       "confidence": 0.0,
-      "reason": "short explanation citing evidence"
+      "evidence": "short explanation citing specific direct evidence"
+    }}
+  ],
+  "pattern_inferred": [
+    {{
+      "entity_name": "string",
+      "confidence": 0.0,
+      "evidence": "short explanation citing historical patterns or capability signals"
+    }}
+  ],
+  "no_evidence": [
+    {{
+      "entity_name": "string",
+      "reason": "why there is insufficient evidence"
     }}
   ]
 }}
 """
+
 
 def _format_new_card_summary(summary: Dict[str, Any]) -> str:
     parts = []
@@ -84,18 +107,30 @@ def _format_new_card_summary(summary: Dict[str, Any]) -> str:
         parts.append(f"Business goal: {summary['business_goal']}")
     if summary.get("actors"):
         parts.append(f"Actors: {', '.join(summary['actors'])}")
-    if summary.get("direct_functions"):
-        parts.append(f"Direct functions: {', '.join(summary['direct_functions'])}")
-    if summary.get("implied_functions"):
-        parts.append(f"Implied functions: {', '.join(summary['implied_functions'])}")
+
+    # V5: show both raw and canonical functions
+    raw_direct = summary.get("direct_functions_raw") or summary.get("direct_functions") or []
+    canon_direct = summary.get("direct_functions_canonical") or []
+    if raw_direct:
+        parts.append(f"Direct functions (raw): {', '.join(raw_direct)}")
+    if canon_direct:
+        parts.append(f"Direct functions (canonical): {', '.join(canon_direct)}")
+
+    raw_implied = summary.get("implied_functions_raw") or summary.get("implied_functions") or []
+    canon_implied = summary.get("implied_functions_canonical") or []
+    if raw_implied:
+        parts.append(f"Implied functions (raw): {', '.join(raw_implied)}")
+    if canon_implied:
+        parts.append(f"Implied functions (canonical): {', '.join(canon_implied)}")
+
     if summary.get("change_types"):
         parts.append(f"Change types: {', '.join(summary['change_types'])}")
     if summary.get("domain_tags"):
         parts.append(f"Domain: {', '.join(summary['domain_tags'])}")
     return "\n".join(parts)
 
+
 def _format_analog_summaries(analogs: List[Dict[str, Any]], limit: int = 5) -> str:
-    """Format analog ticket summaries for the prompt."""
     if not analogs:
         return "No historical analogs found."
 
@@ -104,42 +139,59 @@ def _format_analog_summaries(analogs: List[Dict[str, Any]], limit: int = 5) -> s
         lines = [f"### Analog {i}: {analog.get('ticket_id', '?')} (score: {analog.get('score', 0):.4f})"]
         if analog.get("short_summary"):
             lines.append(f"  Summary: {analog['short_summary']}")
-        if analog.get("direct_functions"):
-            lines.append(f"  Functions: {', '.join(analog['direct_functions'])}")
+        funcs = analog.get("direct_functions_canonical") or analog.get("direct_functions") or []
+        if funcs:
+            lines.append(f"  Functions: {', '.join(funcs)}")
         if analog.get("value_stream_labels"):
             lines.append(f"  Mapped VS: {', '.join(analog['value_stream_labels'])}")
+        cap_tags = analog.get("capability_tags", [])
+        if cap_tags:
+            lines.append(f"  Capabilities: {', '.join(cap_tags)}")
         parts.append("\n".join(lines))
 
     return "\n\n".join(parts)
 
-def _format_candidates(candidates: List[Dict[str, Any]], limit: int = 15) -> str:
-    """Format KG candidate value streams for the prompt."""
+
+def _format_candidate_evidence(candidates: List[Dict[str, Any]], limit: int = 20) -> str:
     if not candidates:
         return "No candidates available."
 
     parts = []
     for cand in candidates[:limit]:
-        name = cand.get("entity_name") or cand.get("name") or ""
-        eid = cand.get("entity_id") or cand.get("id") or ""
-        desc = (cand.get("description") or cand.get("value_proposition") or "")[:200]
-        score = float(cand.get("score") or cand.get("best_score") or 0.0)
-        parts.append(f"- {name} ({eid}) [score: {score:.4f}]\n  {desc}")
+        name = cand.get("candidate_name") or cand.get("entity_name") or ""
+        fused = cand.get("fused_score", 0.0)
+        support_type = cand.get("support_type", "unknown")
+        diversity = cand.get("source_diversity_count", 0)
+        sources = cand.get("evidence_sources", [])
+        source_scores = cand.get("source_scores", {})
+
+        active_scores = {k: round(v, 2) for k, v in source_scores.items() if v > 0}
+
+        line = f"- {name} [fused: {fused:.3f}, type: {support_type}, sources: {diversity}]"
+        if active_scores:
+            line += f"\n  Scores: {active_scores}"
+        desc = cand.get("description", "")
+        if desc:
+            line += f"\n  {desc[:150]}"
+        parts.append(line)
 
     return "\n".join(parts)
 
+
 def _format_raw_evidence(evidence: List[Dict[str, Any]]) -> str:
-    """Format raw evidence snippets, if any."""
     if not evidence:
         return ""
 
     parts = ["## RAW EVIDENCE SNIPPETS (for verification)\n"]
-    for ev in evidence[:6]:
+    for ev in evidence[:8]:
         parts.append(f"- [{ev.get('ticket_id', '?')}] {ev.get('snippet', '')}")
 
     return "\n".join(parts)
 
+
 def _norm(name: str) -> str:
     return normalize_for_search((name or "").strip())
+
 
 def select_value_streams(
     new_card_summary: Dict[str, Any],
@@ -152,26 +204,31 @@ def select_value_streams(
     max_retries: int = 2,
 ) -> Dict[str, Any]:
     """
-    Build compact evidence package and ask LLM to select value streams.
+    Two-pass LLM evidence verification and value stream selection.
 
-    Returns dict with selected_value_streams, rejected_candidates, raw_response.
+    Candidates should be CandidateEvidence objects from the fusion stage.
+
+    Returns dict with:
+      - directly_supported, pattern_inferred, no_evidence (V5 three-class output)
+      - selected_value_streams (union of directly_supported + pattern_inferred for compat)
+      - rejected_candidates
+      - raw_response, prompt_system, prompt_user
     """
     t_start = time.time()
-
-    # Inject VS-support candidates that aren't in KG results
-    if vs_support:
-        _inject_support_candidates(candidates, vs_support)
 
     # Filter to allowed if specified
     if allowed_value_stream_names:
         allowed_set = {_norm(n) for n in allowed_value_stream_names}
-        candidates = [c for c in candidates if _norm(c.get("entity_name", "")) in allowed_set]
+        candidates = [
+            c for c in candidates
+            if _norm(c.get("candidate_name") or c.get("entity_name", "")) in allowed_set
+        ]
 
     # Build prompt
     user_prompt = _USER_PROMPT_TEMPLATE.format(
         new_card_summary=_format_new_card_summary(new_card_summary),
         analog_summaries=_format_analog_summaries(analog_tickets),
-        candidate_list=_format_candidates(candidates),
+        candidate_evidence=_format_candidate_evidence(candidates),
         raw_evidence_section=_format_raw_evidence(raw_evidence or []),
     )
 
@@ -189,96 +246,158 @@ def select_value_streams(
             raw_response = reply.content
             parsed = safe_json_extract(raw_response)
 
-            if isinstance(parsed, list):
-                parsed = {"selected_value_streams": parsed, "rejected_candidates": []}
-            elif not isinstance(parsed, dict):
-                parsed = {"selected_value_streams": [], "rejected_candidates": []}
+            if not isinstance(parsed, dict):
+                parsed = None
+                continue
 
-            break
+            # Validate expected structure
+            if any(k in parsed for k in ("directly_supported", "pattern_inferred", "no_evidence")):
+                break
+
+            # Legacy format compat: if LLM returns old format
+            if "selected_value_streams" in parsed:
+                parsed = _convert_legacy_response(parsed)
+                break
+
+            parsed = None
+
         except Exception as exc:
             logger.error("[SummaryRAG-LLM] Attempt %d failed: %s", attempt, exc)
             if attempt < max_retries:
                 time.sleep(3 * attempt)
 
-    if not parsed or not parsed.get("selected_value_streams"):
-        logger.warning("[SummaryRAG] LLM returned no selections, using fallback")
-        parsed = _fallback_selection(vs_support or [], candidates)
+    if not parsed:
+        logger.warning("[SummaryRAG] LLM returned no valid response, using fallback")
+        parsed = _fallback_selection(candidates, vs_support or [])
 
     # Filter to allowed
     if allowed_value_stream_names:
         allowed_set = {_norm(n) for n in allowed_value_stream_names}
-        parsed["selected_value_streams"] = [
-            vs for vs in parsed["selected_value_streams"]
-            if _norm(vs.get("entity_name", "")) in allowed_set
-        ]
+        for key in ("directly_supported", "pattern_inferred", "no_evidence"):
+            parsed[key] = [
+                vs for vs in parsed.get(key, [])
+                if _norm(vs.get("entity_name", "")) in allowed_set
+            ]
+
+    # Build compat selected_value_streams (union of direct + pattern)
+    selected = []
+    for vs in parsed.get("directly_supported", []):
+        selected.append({
+            "entity_id": vs.get("entity_id", ""),
+            "entity_name": vs.get("entity_name", ""),
+            "confidence": vs.get("confidence", 0.8),
+            "reason": vs.get("evidence", ""),
+            "support_type": "direct",
+        })
+    for vs in parsed.get("pattern_inferred", []):
+        selected.append({
+            "entity_id": vs.get("entity_id", ""),
+            "entity_name": vs.get("entity_name", ""),
+            "confidence": vs.get("confidence", 0.6),
+            "reason": vs.get("evidence", ""),
+            "support_type": "pattern",
+        })
+
+    rejected = [
+        {
+            "entity_name": vs.get("entity_name", ""),
+            "reason": vs.get("reason", "No evidence"),
+        }
+        for vs in parsed.get("no_evidence", [])
+    ]
 
     elapsed = time.time() - t_start
     logger.info(
-        "[SummaryRAG] Selection done in %.2fs | selected=%d",
-        elapsed, len(parsed.get("selected_value_streams", [])),
+        "[SummaryRAG] Selection done in %.2fs | direct=%d | pattern=%d | no_evidence=%d",
+        elapsed,
+        len(parsed.get("directly_supported", [])),
+        len(parsed.get("pattern_inferred", [])),
+        len(parsed.get("no_evidence", [])),
     )
 
     return {
-        "selected_value_streams": parsed.get("selected_value_streams", []),
-        "rejected_candidates": parsed.get("rejected_candidates", []),
+        "directly_supported": parsed.get("directly_supported", []),
+        "pattern_inferred": parsed.get("pattern_inferred", []),
+        "no_evidence": parsed.get("no_evidence", []),
+        "selected_value_streams": selected,
+        "rejected_candidates": rejected,
         "raw_response": raw_response,
         "prompt_system": _SYSTEM_PROMPT,
         "prompt_user": user_prompt,
         "candidates_after_filter": candidates,
     }
 
-def _inject_support_candidates(
-    candidates: List[Dict[str, Any]],
-    vs_support: List[Dict[str, Any]],
-) -> int:
-    """Inject VS support entries that aren't already in KG candidates."""
-    existing = {_norm(c.get("entity_name", "")) for c in candidates}
-    injected = 0
 
-    for entry in vs_support:
-        name = entry.get("entity_name", "").strip()
-        if not name or _norm(name) in existing:
-            continue
-        candidates.append({
-            "entity_id": "",
-            "entity_name": name,
-            "description": f"Historical support from {entry.get('support_count', 0)} analog tickets.",
-            "score": float(entry.get("best_score", 0.0)),
-            "source": "historical_support",
-        })
-        existing.add(_norm(name))
-        injected += 1
+def _convert_legacy_response(parsed: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert old-format LLM response to V5 three-class format."""
+    direct = []
+    pattern = []
+    for vs in parsed.get("selected_value_streams", []):
+        entry = {
+            "entity_name": vs.get("entity_name", ""),
+            "confidence": vs.get("confidence", 0.7),
+            "evidence": vs.get("reason", ""),
+        }
+        # Heuristic: high confidence -> direct, lower -> pattern
+        if float(vs.get("confidence", 0.7)) >= 0.7:
+            direct.append(entry)
+        else:
+            pattern.append(entry)
 
-    return injected
+    return {
+        "directly_supported": direct,
+        "pattern_inferred": pattern,
+        "no_evidence": [],
+    }
+
 
 def _fallback_selection(
-    vs_support: List[Dict[str, Any]],
     candidates: List[Dict[str, Any]],
-    top_n: int = 8,
+    vs_support: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
-    """Fallback: pick top VS support or top KG candidates."""
-    selected = []
-    # Prefer VS support
-    for entry in sorted(vs_support, key=lambda x: -x.get("support_count", 0))[:top_n]:
-        selected.append({
-            "entity_id": "",
-            "entity_name": entry.get("entity_name", ""),
+    """Fallback: classify candidates based on their support_type and fused_score."""
+    direct = []
+    pattern = []
+    no_evidence = []
+
+    for cand in candidates:
+        name = cand.get("candidate_name") or cand.get("entity_name", "")
+        if not name:
+            continue
+
+        support_type = cand.get("support_type", "none")
+        fused = float(cand.get("fused_score", 0.0))
+
+        entry = {
+            "entity_name": name,
+            "confidence": round(fused, 2),
+            "evidence": f"Fallback classification from support_type={support_type}",
+        }
+
+        if support_type in ("direct", "mixed") and fused >= 0.3:
+            direct.append(entry)
+        elif support_type == "pattern" and fused >= 0.2:
+            pattern.append(entry)
+        else:
+            no_evidence.append({
+                "entity_name": name,
+                "reason": f"Fallback: fused_score={fused:.2f}, support_type={support_type}",
+            })
+
+    # Also consider VS support entries not in candidates
+    cand_names = {_norm(c.get("candidate_name") or c.get("entity_name", "")) for c in candidates}
+    for entry in sorted(vs_support, key=lambda x: -x.get("support_count", 0))[:5]:
+        name = entry.get("entity_name", "")
+        if _norm(name) in cand_names:
+            continue
+        pattern.append({
+            "entity_name": name,
             "confidence": 0.5,
-            "reason": f"Fallback from {entry.get('support_count', 0)} historical analog tickets.",
+            "evidence": f"Historical support from {entry.get('support_count', 0)} analog tickets.",
         })
 
-    # Fill from candidates if needed
-    if len(selected) < top_n:
-        existing = {_norm(s.get("entity_name", "")) for s in selected}
-        for cand in candidates[:top_n * 2]:
-            if _norm(cand.get("entity_name", "")) in existing:
-                continue
-            selected.append({
-                "entity_id": cand.get("entity_id", ""),
-                "entity_name": cand.get("entity_name", ""),
-                "confidence": 0.4,
-                "reason": "Fallback from top KG candidates.",
-            })
-            if len(selected) >= top_n:
-                break
-    return {"selected_value_streams": selected, "rejected_candidates": []}
+    return {
+        "directly_supported": direct,
+        "pattern_inferred": pattern,
+        "no_evidence": no_evidence,
+    }

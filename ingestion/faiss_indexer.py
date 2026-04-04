@@ -41,7 +41,7 @@ DEFAULT_INDEX_DIR = str(
 # -----------------------------------------------------------------------------
 
 def _make_document(summary_doc: Dict[str, Any]) -> Document:
-    """Convert a summary dict into a LangChain Document for FAISS."""
+    """Convert a summary dict into a LangChain Document for FAISS (V5)."""
     retrieval_text = build_retrieval_text(summary_doc)
     metadata = {
         "doc_id": summary_doc.get("doc_id", ""),
@@ -50,12 +50,25 @@ def _make_document(summary_doc: Dict[str, Any]) -> Document:
         "short_summary": summary_doc.get("short_summary", ""),
         "business_goal": summary_doc.get("business_goal", ""),
         "actors": summary_doc.get("actors", []),
+        # V5: raw + canonical functions
+        "direct_functions_raw": summary_doc.get("direct_functions_raw", []),
+        "direct_functions_canonical": summary_doc.get("direct_functions_canonical", []),
+        "implied_functions_raw": summary_doc.get("implied_functions_raw", []),
+        "implied_functions_canonical": summary_doc.get("implied_functions_canonical", []),
+        # Legacy compat
         "direct_functions": summary_doc.get("direct_functions", []),
         "implied_functions": summary_doc.get("implied_functions", []),
         "change_types": summary_doc.get("change_types", []),
         "domain_tags": summary_doc.get("domain_tags", []),
         "evidence_sentences": summary_doc.get("evidence_sentences", []),
+        # V5: capability and operational metadata
+        "capability_tags": summary_doc.get("capability_tags", []),
+        "operational_footprint": summary_doc.get("operational_footprint", []),
+        # Ground truth
         "value_stream_labels": summary_doc.get("value_stream_labels", []),
+        "value_stream_ids": summary_doc.get("value_stream_ids", []),
+        "stream_support_type": summary_doc.get("stream_support_type", {}),
+        "supporting_evidence": summary_doc.get("supporting_evidence", []),
         "doc_type": "ticket_summary",
     }
     return Document(page_content=retrieval_text, metadata=metadata)
@@ -123,7 +136,7 @@ def search_summary_index(
 
     out: List[Dict[str, Any]] = []
     for rank, (doc, raw_distance) in enumerate(results, start=1):
-        # Normalise: higher is always better (L2 distance → similarity)
+        # Normalise: higher is always better (L2 distance -> similarity)
         similarity = round(1.0 / (1.0 + float(raw_distance)), 4)
         out.append({
             "rank": rank,
@@ -133,11 +146,22 @@ def search_summary_index(
             "short_summary": doc.metadata.get("short_summary", ""),
             "business_goal": doc.metadata.get("business_goal", ""),
             "actors": doc.metadata.get("actors", []),
+            # V5: raw + canonical functions
+            "direct_functions_raw": doc.metadata.get("direct_functions_raw", []),
+            "direct_functions_canonical": doc.metadata.get("direct_functions_canonical", []),
+            "implied_functions_raw": doc.metadata.get("implied_functions_raw", []),
+            "implied_functions_canonical": doc.metadata.get("implied_functions_canonical", []),
+            # Legacy compat
             "direct_functions": doc.metadata.get("direct_functions", []),
             "implied_functions": doc.metadata.get("implied_functions", []),
             "change_types": doc.metadata.get("change_types", []),
             "domain_tags": doc.metadata.get("domain_tags", []),
+            # V5 metadata
+            "capability_tags": doc.metadata.get("capability_tags", []),
+            "operational_footprint": doc.metadata.get("operational_footprint", []),
             "value_stream_labels": doc.metadata.get("value_stream_labels", []),
+            "stream_support_type": doc.metadata.get("stream_support_type", {}),
+            "supporting_evidence": doc.metadata.get("supporting_evidence", []),
             "retrieval_text": doc.page_content,
         })
 
