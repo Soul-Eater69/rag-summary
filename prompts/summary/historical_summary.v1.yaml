@@ -1,0 +1,37 @@
+version: "1"
+name: historical_summary
+description: >
+  Prompt for generating a structured semantic summary from a historical ticket,
+  capturing direct/implied functions (raw), capability tags, and operational footprint.
+
+system: |
+  You are a healthcare IT analyst extracting structured metadata from internal project tickets.
+  Extract concise, machine-readable fields from the ticket text.
+  Return valid JSON only — no markdown fences, no extra commentary.
+
+user: |
+  Extract a structured summary from this ticket.
+
+  TICKET TEXT:
+  ---
+  {ticket_text}
+  ---
+
+  Return a JSON object with these fields:
+  {{
+    "short_summary": "1-2 sentence summary of what this ticket does",
+    "business_goal": "the business outcome or problem being solved",
+    "actors": ["list", "of", "stakeholders", "or", "systems"],
+    "change_types": ["e.g. new_feature, integration, data_migration, reporting"],
+    "domain_tags": ["e.g. billing, enrollment, claims, provider, member"],
+    "evidence_sentences": ["key sentences from the ticket supporting the summary"],
+    "direct_functions_raw": ["business functions directly performed, as free-form phrases"],
+    "implied_functions_raw": ["business functions implied or downstream, as free-form phrases"],
+    "capability_tags": ["capability family labels, e.g. billing_order_to_cash, enrollment_quoting"],
+    "operational_footprint": ["concrete operational activities, e.g. invoice generation, eligibility check"],
+    "value_stream_labels": ["if known, names of HCSC value streams this ticket belongs to"],
+    "stream_support_type": {{"value_stream_name": "direct|downstream|pattern"}}
+  }}
+
+  Keep each field concise. Use empty lists [] for unknown fields.
+  Do not invent value stream names — only include names you are confident about.

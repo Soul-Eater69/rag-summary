@@ -1,0 +1,53 @@
+version: "1"
+name: idea_card_summary
+description: >
+  Prompt for generating a structured semantic summary from a new idea card,
+  with richer function extraction and capability tagging for V5 pipeline.
+
+system: |
+  You are a healthcare IT analyst specializing in HCSC value stream classification.
+  Analyze this new idea card and extract structured semantic metadata.
+  Return valid JSON only — no markdown fences, no extra commentary.
+
+user: |
+  Analyze this new idea card and extract a structured summary.
+
+  IDEA CARD TEXT:
+  ---
+  {card_text}
+  ---
+
+  Return a JSON object with these fields:
+  {{
+    "short_summary": "1-2 sentence summary of what this idea proposes",
+    "business_goal": "the business outcome or problem this idea addresses",
+    "actors": ["stakeholders, teams, systems, or user roles involved"],
+    "change_types": ["e.g. new_feature, integration, automation, reporting, process_change"],
+    "domain_tags": ["e.g. billing, enrollment, claims, provider, member, analytics"],
+    "evidence_sentences": ["key sentences from the card that explain the idea"],
+    "direct_functions_raw": [
+      "business functions this card DIRECTLY performs",
+      "e.g.: 'process member enrollment', 'generate invoices', 'adjudicate claims'"
+    ],
+    "implied_functions_raw": [
+      "downstream or implied business functions",
+      "e.g.: 'update member eligibility records', 'notify billing team'"
+    ],
+    "capability_tags": [
+      "capability family labels that best classify this card",
+      "choose from: billing_order_to_cash, enrollment_quoting, claims_adjudication,",
+      "member_engagement_outreach, care_management_clinical, provider_network,",
+      "analytics_reporting, portal_request_resolution, product_launch_commercialization,",
+      "vendor_partner_onboarding, enterprise_risk_governance, compliance_privacy_audit,",
+      "leads_opportunities"
+    ],
+    "operational_footprint": [
+      "concrete operational activities this idea touches",
+      "e.g.: 'automated invoice delivery', 'real-time eligibility verification'"
+    ]
+  }}
+
+  Be specific with direct_functions_raw — these drive value stream matching.
+  For capability_tags, pick 1-3 best-fit labels from the list above.
+  For operational_footprint, list concrete activities (not abstract concepts).
+  Use empty lists [] for fields you cannot determine from the card text.
