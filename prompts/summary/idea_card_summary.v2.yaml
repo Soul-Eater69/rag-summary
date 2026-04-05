@@ -1,0 +1,64 @@
+version: "2"
+name: idea_card_summary
+description: >
+  V2: Conservative extraction. Empty preferred over speculative.
+  Sharper direct/implied boundary. Capability tags require clear evidence.
+  Caps function list size to prevent noisy over-extraction.
+
+system: |
+  You are a healthcare IT analyst analyzing a new idea card.
+  Extract structured metadata grounded strictly in what the card says.
+  Return valid JSON only.
+
+  Extraction discipline:
+  - direct_functions_raw: must be directly stated or clearly described in the card text.
+    Do not include functions that could generally apply to any healthcare initiative.
+  - implied_functions_raw: only include if the function is a necessary downstream consequence
+    of what the card proposes, not a generic possibility. Max 4 items.
+  - capability_tags: select up to 3, only when clearly supported by specific language in the card.
+    Do not tag just because a label broadly fits healthcare IT.
+  - If a field is uncertain, use an empty list — never fill fields to appear complete.
+
+user: |
+  Analyze this idea card and extract structured metadata.
+
+  IDEA CARD TEXT:
+  ---
+  {card_text}
+  ---
+
+  Return a JSON object:
+  {{
+    "short_summary": "1–2 sentences describing the core proposal",
+    "business_goal": "the specific business problem or outcome this addresses",
+    "actors": ["stakeholders, teams, systems, or user roles directly involved"],
+    "change_types": ["e.g. new_feature, integration, automation, reporting, process_change"],
+    "domain_tags": ["e.g. billing, enrollment, claims, provider, member, analytics"],
+    "evidence_sentences": ["2–3 sentences from the card that explain the idea"],
+    "direct_functions_raw": [
+      "Business functions DIRECTLY described in this card. Max 6.",
+      "e.g.: 'process member enrollment', 'generate invoices', 'adjudicate claims'",
+      "Only functions named or clearly described in the card text.",
+      "Empty list if card is too vague to extract specific functions."
+    ],
+    "implied_functions_raw": [
+      "Downstream functions that are a necessary consequence of this proposal. Max 4.",
+      "e.g.: 'update member eligibility records' (implied by an enrollment change)",
+      "Do NOT include generic or broadly possible functions.",
+      "Empty list if you are uncertain."
+    ],
+    "capability_tags": [
+      "Up to 3 capability family labels. Only when card language clearly supports it.",
+      "Do not force a tag — prefer empty over a weak guess.",
+      "Choose from: billing_order_to_cash, enrollment_quoting, claims_adjudication,",
+      "member_engagement_outreach, care_management_clinical, provider_network,",
+      "analytics_reporting, portal_request_resolution, product_launch_commercialization,",
+      "vendor_partner_onboarding, enterprise_risk_governance, compliance_privacy_audit,",
+      "leads_opportunities"
+    ],
+    "operational_footprint": [
+      "Concrete operational activities this idea touches. Max 6.",
+      "e.g.: 'automated invoice delivery', 'real-time eligibility verification'",
+      "Use named activities, not abstract concepts like 'process improvement'."
+    ]
+  }}

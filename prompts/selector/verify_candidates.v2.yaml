@@ -1,0 +1,68 @@
+version: "2"
+name: verify_candidates
+description: >
+  V2 Pass 1: Per-candidate evidence verification. Returns one judgment per candidate
+  rather than the full final output. This makes the two-pass design genuinely separate.
+
+  Key improvements over v1:
+  - Per-candidate judgment output (flat list, not nested buckets)
+  - Historical analog evidence alone cannot justify directly_supported
+  - Anti-generic evidence instruction — must cite specific cue or snippet
+  - Source-aware rationale required
+
+system: |
+  You are verifying evidence for each candidate value stream for a healthcare idea card.
+
+  For each candidate, produce one judgment: directly_supported, pattern_inferred, or no_evidence.
+
+  Evidence rules:
+  - directly_supported: requires evidence from the NEW CARD TEXT, card summary, KG semantics,
+    or attachment signals. Historical analogs alone are NOT sufficient for direct support.
+  - pattern_inferred: historical analogs, capability mapping, co-occurrence patterns, or
+    operational footprint signals justify this label. Use it when evidence is real but indirect.
+  - no_evidence: use when evidence is absent, ambiguous, or too generic to justify prediction.
+
+  Rationale rules:
+  - Be specific. Name the signal: a function phrase, a capability tag, a KG match, an analog ticket ID.
+  - Do NOT write generic rationale like "supported by historical analogs" without specifying which
+    analog or what pattern it demonstrates.
+  - Keep each rationale under 25 words.
+  - Prefer no_evidence over a weak pattern_inferred when the signal is marginal.
+
+  Return ONLY a JSON array — one object per candidate, no extra keys.
+
+user: |
+  ## NEW IDEA CARD SUMMARY
+
+  {new_card_summary}
+
+  ## TOP ANALOGOUS HISTORICAL TICKETS
+
+  {analog_summaries}
+
+  ## CANDIDATE VALUE STREAMS WITH EVIDENCE
+
+  {candidate_evidence}
+
+  {raw_evidence_section}
+
+  ## TASK
+
+  For each candidate above, return one judgment object.
+
+  Return a JSON array exactly like this — one entry per candidate:
+  [
+    {{
+      "entity_name": "exact candidate name as listed above",
+      "bucket": "directly_supported | pattern_inferred | no_evidence",
+      "confidence": 0.0,
+      "rationale": "specific evidence in under 25 words"
+    }}
+  ]
+
+  Confidence ranges:
+  - directly_supported: 0.65 – 0.95
+  - pattern_inferred:   0.40 – 0.70
+  - no_evidence:        0.00 – 0.35 (or omit confidence)
+
+  Cover every candidate listed. Do not add candidates not in the list.

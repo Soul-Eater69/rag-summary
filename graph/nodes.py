@@ -388,7 +388,7 @@ def node_fuse_scores(state: PredictionState) -> Dict[str, Any]:
 
 
 def node_verify_candidates(state: PredictionState) -> Dict[str, Any]:
-    """Step 9 (Pass 1): LLM evidence verification."""
+    """Step 9 (Pass 1): Per-candidate LLM evidence verification → List[CandidateJudgment]."""
     t = time.time()
     new_card_summary = state.get("new_card_summary", {})
     analog_tickets = state.get("analog_tickets", [])
@@ -406,7 +406,7 @@ def node_verify_candidates(state: PredictionState) -> Dict[str, Any]:
             if _norm_text(c.get("candidate_name") or c.get("entity_name", "")) in allowed_set
         ]
 
-    chain = SelectorVerifyChain(llm=llm)
+    chain = SelectorVerifyChain(llm=llm)  # uses v2 by default
     result = chain.run(
         new_card_summary=new_card_summary,
         analog_tickets=analog_tickets,
@@ -414,24 +414,37 @@ def node_verify_candidates(state: PredictionState) -> Dict[str, Any]:
         raw_evidence=raw_evidence,
     )
 
-    logger.info("[node_verify_candidates] done in %.2fs", time.time() - t)
-    return {
-        "selection_result": result,
-        "_verify_result": result,  # pass to finalize node
-    }
+    # result["judgments"] is List[CandidateJudgment]; serialise to dicts for state
+    from summary_rag.models.candidate_judgment import CandidateJudgment
+    judgments = result.get("judgments", [])
+    judgment_dicts = [
+        j.model_dump() if isinstance(j, CandidateJudgment) else j
+        for j in judgments
+    ]
+
+    logger.info("[node_verify_candidates] done in %.2fs | %d judgments", time.time() - t, len(judgment_dicts))
+    return {"verify_judgments": judgment_dicts}
 
 
 def node_finalize_selection(state: PredictionState) -> Dict[str, Any]:
-    """Step 9 (Pass 2): LLM finalize and calibrate."""
+    """Step 9 (Pass 2): Consume CandidateJudgments → produce final SelectionResult."""
     t = time.time()
     new_card_summary = state.get("new_card_summary", {})
-    preliminary = state.get("_verify_result") or state.get("selection_result", {})
+    judgment_dicts = state.get("verify_judgments", [])
+    fused_candidates = state.get("fused_candidates", [])
     llm: Optional[LLMService] = state.get("_llm")  # type: ignore[assignment]
 
-    chain = SelectorFinalizeChain(llm=llm)
+    from summary_rag.models.candidate_judgment import CandidateJudgment
+    judgments = [
+        CandidateJudgment(**j) if isinstance(j, dict) else j
+        for j in judgment_dicts
+    ]
+
+    chain = SelectorFinalizeChain(llm=llm)  # uses v2 by default
     result = chain.run(
         new_card_summary=new_card_summary,
-        preliminary_classification=preliminary,
+        judgments=judgments,
+        fused_candidates=fused_candidates,
     )
 
     logger.info("[node_finalize_selection] done in %.2fs", time.time() - t)
@@ -440,7 +453,31 @@ def node_finalize_selection(state: PredictionState) -> Dict[str, Any]:
 
 def node_finalize_output(state: PredictionState) -> Dict[str, Any]:
     """Step 10: Finalize three-class output with dedup and compat fields."""
+    from summary_rag.models.selection import SelectionResult
+
     selection_result = state.get("selection_result", {})
+    # Accept both SelectionResult Pydantic object and raw dict
+    if isinstance(selection_result, SelectionResult):
+        raw_directly = [s.model_dump() for s in selection_result.directly_supported]
+        raw_pattern = [s.model_dump() for s in selection_result.pattern_inferred]
+        raw_no_ev = [s.model_dump() for s in selection_result.no_evidence]
+    else:
+        raw_directly = selection_result.get("directly_supported", [])
+        raw_pattern = selection_result.get("pattern_inferred", [])
+        raw_no_ev = selection_result.get("no_evidence", [])
+
+    # Fall back to converting verify_judgments directly if selection_result is empty
+    if not raw_directly and not raw_pattern and not raw_no_ev:
+        judgment_dicts = state.get("verify_judgments", [])
+        if judgment_dicts:
+            from summary_rag.models.candidate_judgment import CandidateJudgment
+            from summary_rag.chains.selector_finalize_chain import _judgments_to_selection_result
+            judgments = [CandidateJudgment(**j) if isinstance(j, dict) else j for j in judgment_dicts]
+            fallback = _judgments_to_selection_result(judgments)
+            raw_directly = [s.model_dump() for s in fallback.directly_supported]
+            raw_pattern = [s.model_dump() for s in fallback.pattern_inferred]
+            raw_no_ev = [s.model_dump() for s in fallback.no_evidence]
+
     seen_names: set = set()
 
     def _dedup_vs_list(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -456,9 +493,9 @@ def node_finalize_output(state: PredictionState) -> Dict[str, Any]:
             out.append({**vs, "entity_name": cleaned})
         return out
 
-    directly_supported = _dedup_vs_list(selection_result.get("directly_supported", []))
-    pattern_inferred = _dedup_vs_list(selection_result.get("pattern_inferred", []))
-    no_evidence = selection_result.get("no_evidence", [])
+    directly_supported = _dedup_vs_list(raw_directly)
+    pattern_inferred = _dedup_vs_list(raw_pattern)
+    no_evidence = raw_no_ev
 
     selected_value_streams = []
     for vs in directly_supported:

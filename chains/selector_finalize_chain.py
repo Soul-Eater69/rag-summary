@@ -1,64 +1,107 @@
 """
 LangChain-style selector finalize chain — Pass 2 (V5 architecture).
 
-Takes the preliminary classification from Pass 1 and produces the final
-calibrated three-class output.
+V2 behaviour: consumes List[CandidateJudgment] from Pass 1 and applies:
+  - deduplication of semantically overlapping streams
+  - calibration (confidence bands)
+  - contradiction cleanup
+  - final shaping into SelectionResult
+
+Falls back to converting judgments directly to SelectionResult if LLM fails.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 from typing import Any, Dict, List, Optional
 
 from summary_rag.ingestion.adapters import LLMService, get_default_llm, safe_json_extract
+from summary_rag.models.candidate_judgment import CandidateJudgment
+from summary_rag.models.selection import SelectionResult, SupportedStream, UnsupportedStream
 from .prompt_loader import load_prompt, render_prompt
 from .selector_verify_chain import _format_new_card_summary
 
 logger = logging.getLogger(__name__)
 
 
-def _format_preliminary(preliminary: Dict[str, Any]) -> str:
-    """Format pass-1 output for the finalize prompt."""
+def _format_judgments(judgments: List[CandidateJudgment]) -> str:
+    """Format pass-1 CandidateJudgment list for the finalize prompt."""
+    if not judgments:
+        return "No judgments available."
+
     lines = []
+    for j in judgments:
+        conf_str = f" (conf: {j.confidence:.2f})" if j.confidence > 0 else ""
+        rat_str = f" — {j.rationale}" if j.rationale else ""
+        lines.append(f"- [{j.bucket}]{conf_str} {j.entity_name}{rat_str}")
+    return "\n".join(lines)
 
-    direct = preliminary.get("directly_supported", [])
-    if direct:
-        lines.append("DIRECTLY SUPPORTED:")
-        for item in direct:
-            conf = item.get("confidence", 0)
-            lines.append(f"  - {item.get('entity_name', '')} (conf: {conf:.2f}): {item.get('evidence', '')}")
 
-    pattern = preliminary.get("pattern_inferred", [])
-    if pattern:
-        lines.append("PATTERN INFERRED:")
-        for item in pattern:
-            conf = item.get("confidence", 0)
-            lines.append(f"  - {item.get('entity_name', '')} (conf: {conf:.2f}): {item.get('evidence', '')}")
+def _format_fused_scores(fused_candidates: Optional[List[Dict[str, Any]]]) -> str:
+    """Format fused scores section for the finalize prompt."""
+    if not fused_candidates:
+        return "Fused scores not available."
+    lines = []
+    for c in sorted(fused_candidates, key=lambda x: -x.get("fused_score", 0))[:15]:
+        name = c.get("candidate_name") or c.get("entity_name") or ""
+        fused = c.get("fused_score", 0.0)
+        diversity = c.get("source_diversity_count", 0)
+        lines.append(f"- {name}: fused={fused:.3f}, sources={diversity}")
+    return "\n".join(lines)
 
-    no_ev = preliminary.get("no_evidence", [])
-    if no_ev:
-        lines.append("NO EVIDENCE:")
-        for item in no_ev:
-            lines.append(f"  - {item.get('entity_name', '')}: {item.get('reason', '')}")
 
-    return "\n".join(lines) if lines else "No preliminary classification available."
+def _judgments_to_selection_result(judgments: List[CandidateJudgment]) -> SelectionResult:
+    """
+    Convert judgment list directly to SelectionResult without LLM.
+    Used as fallback when Pass 2 LLM call fails.
+    """
+    directly: List[SupportedStream] = []
+    pattern: List[SupportedStream] = []
+    no_ev: List[UnsupportedStream] = []
+
+    for j in judgments:
+        if j.bucket == "directly_supported":
+            directly.append(SupportedStream(
+                entity_name=j.entity_name,
+                confidence=j.confidence if j.confidence > 0 else 0.70,
+                evidence=j.rationale,
+            ))
+        elif j.bucket == "pattern_inferred":
+            pattern.append(SupportedStream(
+                entity_name=j.entity_name,
+                confidence=j.confidence if j.confidence > 0 else 0.50,
+                evidence=j.rationale,
+            ))
+        else:
+            no_ev.append(UnsupportedStream(
+                entity_name=j.entity_name,
+                reason=j.rationale or "No evidence.",
+            ))
+
+    return SelectionResult(
+        directly_supported=directly,
+        pattern_inferred=pattern,
+        no_evidence=no_ev,
+    )
 
 
 class SelectorFinalizeChain:
     """
     Pass 2 of the two-pass LLM verifier.
 
-    Reviews preliminary classifications and produces the final calibrated output.
-    Falls back to pass-1 output if LLM call fails.
+    Consumes List[CandidateJudgment] from SelectorVerifyChain v2, applies
+    deduplication / calibration / contradiction cleanup, and produces
+    SelectionResult (Pydantic model).
+
+    Falls back to direct judgment conversion if LLM call fails.
     """
 
     def __init__(
         self,
         *,
         llm: Optional[LLMService] = None,
-        prompt_version: str = "v1",
+        prompt_version: str = "v2",
         max_retries: int = 2,
     ) -> None:
         self._llm = llm
@@ -75,21 +118,32 @@ class SelectorFinalizeChain:
         self,
         *,
         new_card_summary: Dict[str, Any],
-        preliminary_classification: Dict[str, Any],
+        judgments: List[CandidateJudgment],
+        fused_candidates: Optional[List[Dict[str, Any]]] = None,
+        # v1 compat: accept preliminary_classification dict
+        preliminary_classification: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
-        Run pass 2 finalization.
+        Run Pass 2 finalization.
 
-        Returns dict with: directly_supported, pattern_inferred, no_evidence,
-        raw_response, prompt_system, prompt_user.
-        Falls back to preliminary_classification on failure.
+        Returns:
+          - selection_result: SelectionResult (Pydantic model)
+          - directly_supported, pattern_inferred, no_evidence: dicts (compat)
+          - raw_response, prompt_system, prompt_user
         """
+        # Accept v1 legacy dict input
+        if not judgments and preliminary_classification:
+            judgments = self._judgments_from_legacy(preliminary_classification)
+
         system = self._prompt["system"]
         user = render_prompt(
             self._prompt,
             {
                 "new_card_summary": _format_new_card_summary(new_card_summary),
-                "preliminary_classification": _format_preliminary(preliminary_classification),
+                "candidate_judgments": _format_judgments(judgments),
+                "fused_scores_section": _format_fused_scores(fused_candidates),
+                # v1 compat variable name
+                "preliminary_classification": _format_judgments(judgments),
             },
             role="user",
         )
@@ -113,15 +167,78 @@ class SelectorFinalizeChain:
                     time.sleep(3 * attempt)
 
         if not parsed:
-            # Fall back to preliminary pass-1 output
-            logger.warning("[FinalizeChain] LLM failed, using pass-1 output as final")
-            parsed = preliminary_classification
+            logger.warning("[FinalizeChain] LLM failed, converting judgments directly")
+            selection_result = _judgments_to_selection_result(judgments)
+        else:
+            selection_result = self._parse_selection_result(parsed)
 
         return {
-            "directly_supported": parsed.get("directly_supported", []),
-            "pattern_inferred": parsed.get("pattern_inferred", []),
-            "no_evidence": parsed.get("no_evidence", []),
+            "selection_result": selection_result,
+            "directly_supported": [s.model_dump() for s in selection_result.directly_supported],
+            "pattern_inferred": [s.model_dump() for s in selection_result.pattern_inferred],
+            "no_evidence": [s.model_dump() for s in selection_result.no_evidence],
             "raw_response": raw_response,
             "prompt_system": system,
             "prompt_user": user,
         }
+
+    def _parse_selection_result(self, parsed: Dict[str, Any]) -> SelectionResult:
+        directly = [
+            SupportedStream(
+                entity_name=item.get("entity_name", ""),
+                entity_id=item.get("entity_id", ""),
+                confidence=float(item.get("confidence", 0.75)),
+                evidence=item.get("evidence", ""),
+            )
+            for item in parsed.get("directly_supported", [])
+            if item.get("entity_name")
+        ]
+        pattern = [
+            SupportedStream(
+                entity_name=item.get("entity_name", ""),
+                entity_id=item.get("entity_id", ""),
+                confidence=float(item.get("confidence", 0.55)),
+                evidence=item.get("evidence", ""),
+            )
+            for item in parsed.get("pattern_inferred", [])
+            if item.get("entity_name")
+        ]
+        no_ev = [
+            UnsupportedStream(
+                entity_name=item.get("entity_name", ""),
+                reason=item.get("reason", ""),
+            )
+            for item in parsed.get("no_evidence", [])
+            if item.get("entity_name")
+        ]
+        return SelectionResult(
+            directly_supported=directly,
+            pattern_inferred=pattern,
+            no_evidence=no_ev,
+        )
+
+    def _judgments_from_legacy(self, preliminary: Dict[str, Any]) -> List[CandidateJudgment]:
+        """Convert v1 bucket dict to CandidateJudgment list."""
+        result = []
+        for item in preliminary.get("directly_supported", []):
+            result.append(CandidateJudgment(
+                entity_name=item.get("entity_name", ""),
+                bucket="directly_supported",
+                confidence=float(item.get("confidence", 0.75)),
+                rationale=item.get("evidence", ""),
+            ))
+        for item in preliminary.get("pattern_inferred", []):
+            result.append(CandidateJudgment(
+                entity_name=item.get("entity_name", ""),
+                bucket="pattern_inferred",
+                confidence=float(item.get("confidence", 0.55)),
+                rationale=item.get("evidence", ""),
+            ))
+        for item in preliminary.get("no_evidence", []):
+            result.append(CandidateJudgment(
+                entity_name=item.get("entity_name", ""),
+                bucket="no_evidence",
+                confidence=0.0,
+                rationale=item.get("reason", ""),
+            ))
+        return result

@@ -1,22 +1,33 @@
 """
 LangChain-style selector verification chain — Pass 1 (V5 architecture).
 
-Calls the LLM to classify each candidate value stream into
-directly_supported / pattern_inferred / no_evidence based on the
-full evidence context.
+V2 behaviour: returns a flat List[CandidateJudgment] — one judgment per
+candidate — rather than directly producing the final SelectionResult buckets.
+Pass 2 (SelectorFinalizeChain) consumes this list and produces the
+final SelectionResult, making the two-pass design genuinely separate.
+
+Prompt version defaulting:
+  - default is "v2" (per-candidate flat judgment output)
+  - pass prompt_version="v1" to get the old single-pass full-bucket output
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Any, Dict, List, Optional
 
 from summary_rag.ingestion.adapters import LLMService, get_default_llm, safe_json_extract
+from summary_rag.models.candidate_judgment import CandidateJudgment
 from .prompt_loader import load_prompt, render_prompt
 
 logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# Formatting helpers (shared with graph/nodes.py via import)
+# ---------------------------------------------------------------------------
 
 def _format_new_card_summary(summary: Dict[str, Any]) -> str:
     parts = []
@@ -103,23 +114,30 @@ def _format_raw_evidence(evidence: List[Dict[str, Any]]) -> str:
     return "\n".join(parts)
 
 
+# ---------------------------------------------------------------------------
+# Chain
+# ---------------------------------------------------------------------------
+
 class SelectorVerifyChain:
     """
     Pass 1 of the two-pass LLM verifier.
 
-    Classifies each candidate value stream as directly_supported,
-    pattern_inferred, or no_evidence.
+    With prompt v2 (default): returns List[CandidateJudgment] — one per candidate.
+    With prompt v1: returns legacy SelectionResult-shaped dict.
+
+    SelectorFinalizeChain consumes the v2 judgment list.
     """
 
     def __init__(
         self,
         *,
         llm: Optional[LLMService] = None,
-        prompt_version: str = "v1",
+        prompt_version: str = "v2",
         max_retries: int = 2,
     ) -> None:
         self._llm = llm
         self._max_retries = max_retries
+        self._prompt_version = prompt_version
         self._prompt = load_prompt("verify_candidates", version=prompt_version)
 
     @property
@@ -137,10 +155,11 @@ class SelectorVerifyChain:
         raw_evidence: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """
-        Run pass 1 verification.
+        Run Pass 1 verification.
 
-        Returns dict with: directly_supported, pattern_inferred, no_evidence,
-        raw_response, prompt_system, prompt_user.
+        Returns:
+          - judgments: List[CandidateJudgment] (v2) or legacy buckets (v1)
+          - raw_response, prompt_system, prompt_user
         """
         system = self._prompt["system"]
         user = render_prompt(
@@ -154,27 +173,104 @@ class SelectorVerifyChain:
             role="user",
         )
 
-        parsed: Optional[Dict] = None
         raw_response: Optional[str] = None
+        parsed = None
 
         for attempt in range(1, self._max_retries + 1):
             try:
                 reply = self.llm.generate(query=user, context="", system_prompt=system)
                 raw_response = reply.content
                 parsed = safe_json_extract(raw_response)
-                if isinstance(parsed, dict) and any(
-                    k in parsed for k in ("directly_supported", "pattern_inferred", "no_evidence")
-                ):
+                if parsed is not None:
                     break
-                parsed = None
             except Exception as exc:
                 logger.error("[VerifyChain] Attempt %d failed: %s", attempt, exc)
                 if attempt < self._max_retries:
                     time.sleep(3 * attempt)
 
-        if not parsed:
-            parsed = {"directly_supported": [], "pattern_inferred": [], "no_evidence": []}
+        if self._prompt_version == "v1":
+            return self._build_legacy_result(parsed, raw_response, system, user)
 
+        judgments = self._parse_judgments(parsed, candidates)
+        return {
+            "judgments": judgments,
+            "raw_response": raw_response,
+            "prompt_system": system,
+            "prompt_user": user,
+        }
+
+    def _parse_judgments(
+        self,
+        parsed: Any,
+        candidates: List[Dict[str, Any]],
+    ) -> List[CandidateJudgment]:
+        """
+        Parse LLM output into List[CandidateJudgment].
+
+        v2 prompt returns a JSON array; fall back to covering all candidates
+        with no_evidence if parsing fails or coverage is incomplete.
+        """
+        _VALID_BUCKETS = {"directly_supported", "pattern_inferred", "no_evidence"}
+        candidate_names = {
+            (c.get("candidate_name") or c.get("entity_name") or "").strip()
+            for c in candidates
+        }
+
+        raw_list: List[Dict] = []
+        if isinstance(parsed, list):
+            raw_list = parsed
+        elif isinstance(parsed, dict):
+            # Graceful degradation: v1 bucket format
+            for bucket in ("directly_supported", "pattern_inferred", "no_evidence"):
+                for item in parsed.get(bucket, []):
+                    raw_list.append({
+                        "entity_name": item.get("entity_name", ""),
+                        "bucket": bucket,
+                        "confidence": item.get("confidence", 0.0),
+                        "rationale": item.get("evidence") or item.get("reason") or "",
+                    })
+
+        judgments: List[CandidateJudgment] = []
+        seen: set = set()
+
+        for item in raw_list:
+            name = (item.get("entity_name") or "").strip()
+            if not name:
+                continue
+            bucket = item.get("bucket", "no_evidence")
+            if bucket not in _VALID_BUCKETS:
+                bucket = "no_evidence"
+            conf = float(item.get("confidence") or 0.0)
+            rationale = (item.get("rationale") or item.get("evidence") or item.get("reason") or "").strip()
+            judgments.append(CandidateJudgment(
+                entity_name=name,
+                bucket=bucket,
+                confidence=conf,
+                rationale=rationale,
+            ))
+            seen.add(name)
+
+        # Cover any candidates missing from LLM output
+        for name in sorted(candidate_names - seen):
+            judgments.append(CandidateJudgment(
+                entity_name=name,
+                bucket="no_evidence",
+                confidence=0.0,
+                rationale="Not covered in verification pass.",
+            ))
+
+        return judgments
+
+    def _build_legacy_result(
+        self,
+        parsed: Any,
+        raw_response: Optional[str],
+        system: str,
+        user: str,
+    ) -> Dict[str, Any]:
+        """v1 compat: return old bucket-dict format."""
+        if not isinstance(parsed, dict):
+            parsed = {}
         return {
             "directly_supported": parsed.get("directly_supported", []),
             "pattern_inferred": parsed.get("pattern_inferred", []),

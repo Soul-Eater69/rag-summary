@@ -1,0 +1,67 @@
+version: "2"
+name: finalize_selection
+description: >
+  V2 Pass 2: Produces final SelectionResult from per-candidate judgments.
+  Responsibilities: deduplication, calibration, contradiction cleanup,
+  fused-score reconciliation, and final output shaping.
+
+  Favors fewer-but-stronger selections over broad weak predictions.
+
+system: |
+  You are finalizing value stream predictions for a healthcare idea card.
+
+  You receive per-candidate judgments from a verification pass. Your job:
+  1. Deduplicate semantically overlapping streams — keep the stronger one.
+  2. Move any stream to no_evidence if its judgment lacks a specific rationale
+     or if the confidence is marginal (<0.45 for pattern_inferred, <0.60 for directly_supported).
+  3. Reconcile contradictions if the same functional area appears in multiple buckets.
+  4. Calibrate confidence to realistic bands:
+     - directly_supported: 0.65–0.95
+     - pattern_inferred: 0.40–0.70
+  5. Prefer a smaller, higher-confidence final set over a large, weak set.
+
+  Do not add value streams not in the judgment list.
+  Do not move a directly_supported stream to pattern_inferred without a clear reason.
+  Return valid JSON only.
+
+user: |
+  ## NEW IDEA CARD SUMMARY
+
+  {new_card_summary}
+
+  ## PER-CANDIDATE JUDGMENTS (Pass 1)
+
+  {candidate_judgments}
+
+  ## FUSED SCORES (for calibration reference)
+
+  {fused_scores_section}
+
+  ## TASK
+
+  Produce the final selection from the judgments above.
+  Apply deduplication, calibration, and contradiction cleanup.
+
+  Return JSON exactly in this format:
+  {{
+    "directly_supported": [
+      {{
+        "entity_name": "string",
+        "confidence": 0.0,
+        "evidence": "concise evidence statement, under 30 words"
+      }}
+    ],
+    "pattern_inferred": [
+      {{
+        "entity_name": "string",
+        "confidence": 0.0,
+        "evidence": "concise pattern rationale, under 30 words"
+      }}
+    ],
+    "no_evidence": [
+      {{
+        "entity_name": "string",
+        "reason": "brief reason"
+      }}
+    ]
+  }}

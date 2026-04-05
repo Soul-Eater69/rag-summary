@@ -45,7 +45,7 @@ class SummaryChain:
         self,
         *,
         llm: Optional[LLMService] = None,
-        prompt_version: str = "v1",
+        prompt_version: str = "v2",
     ) -> None:
         self._llm = llm
         self._prompt_version = prompt_version
