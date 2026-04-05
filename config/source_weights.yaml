@@ -1,0 +1,26 @@
+# Source weights for fused scoring (V5 architecture).
+#
+# Each key is a source name (matching candidate_evidence.py SOURCE_* constants).
+# Values are the weights used in the weighted sum:
+#   S_fused = sum(weight * S_source) + diversity_bonus
+#
+# Weights should sum to approximately 1.0.
+# Tune these based on empirical precision/recall measurements.
+
+version: "1"
+
+weights:
+  chunk: 0.20          # Direct text chunk matches from ticket bodies
+  summary: 0.15        # Summary-level signal (card capability_tags, canonical functions)
+  attachment: 0.18     # Proxy attachment signal (analog analog_score × 0.75)
+  theme: 0.08          # Theme/cluster-based inference (future)
+  kg: 0.18             # Knowledge graph semantic retrieval
+  historical: 0.12     # Historical analog support (FAISS-retrieved)
+  capability: 0.09     # Capability map signal (rule-based cue matching)
+
+diversity_bonus:
+  per_source: 0.03     # Bonus per active source beyond the first
+  max_total: 0.15      # Cap on total diversity bonus
+
+penalties:
+  no_evidence: -0.10   # Penalty for candidates with zero active sources

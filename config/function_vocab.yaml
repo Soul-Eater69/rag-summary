@@ -1,0 +1,157 @@
+# Canonical function vocabulary for the function normalizer (V5 architecture).
+#
+# This file is the authoritative source for the controlled vocabulary.
+# The function_normalizer.py module uses this vocabulary plus phrase rules
+# to map raw LLM-extracted function phrases to canonical terms.
+#
+# To add a new canonical function:
+#   1. Add it to the vocab list below
+#   2. Add matching rules in function_normalizer.py _PHRASE_RULES
+
+version: "1"
+
+vocab:
+  - product setup
+  - outreach
+  - reporting
+  - vendor integration
+  - billing
+  - payment
+  - onboarding
+  - portal access
+  - request handling
+  - quote/rating
+  - care workflow
+  - compliance
+  - analytics
+  - eligibility
+  - claims processing
+  - enrollment
+  - authorization
+  - grievance/appeals
+  - pharmacy
+  - risk adjustment
+  - credentialing
+  - network management
+  - data migration
+  - system integration
+
+# Phrase rules: list of {triggers: [...], canonical: "..."} entries
+# If ALL trigger tokens appear in a raw phrase (case-insensitive),
+# the phrase maps to the canonical function.
+#
+# Note: These rules are currently implemented in function_normalizer.py.
+# This YAML is the reference spec; function_normalizer.py is the runtime impl.
+phrase_rules:
+  - triggers: [product, setup]
+    canonical: product setup
+  - triggers: [product, launch]
+    canonical: product setup
+  - triggers: [commerciali]
+    canonical: product setup
+  - triggers: [outreach]
+    canonical: outreach
+  - triggers: [campaign]
+    canonical: outreach
+  - triggers: [communication, member]
+    canonical: outreach
+  - triggers: [report]
+    canonical: reporting
+  - triggers: [dashboard]
+    canonical: reporting
+  - triggers: [analytics]
+    canonical: analytics
+  - triggers: [insight]
+    canonical: analytics
+  - triggers: [vendor, integr]
+    canonical: vendor integration
+  - triggers: [vendor, eligib]
+    canonical: vendor integration
+  - triggers: [third.party, integr]
+    canonical: vendor integration
+  - triggers: [billing]
+    canonical: billing
+  - triggers: [invoic]
+    canonical: billing
+  - triggers: [order.to.cash]
+    canonical: billing
+  - triggers: [payment]
+    canonical: payment
+  - triggers: [remittance]
+    canonical: payment
+  - triggers: [onboard]
+    canonical: onboarding
+  - triggers: [portal]
+    canonical: portal access
+  - triggers: [self.service]
+    canonical: portal access
+  - triggers: [request, handl]
+    canonical: request handling
+  - triggers: [ticket, handl]
+    canonical: request handling
+  - triggers: [inquiry]
+    canonical: request handling
+  - triggers: [quot]
+    canonical: quote/rating
+  - triggers: [rate, calculat]
+    canonical: quote/rating
+  - triggers: [premium, calculat]
+    canonical: quote/rating
+  - triggers: [care, workflow]
+    canonical: care workflow
+  - triggers: [care, coordinat]
+    canonical: care workflow
+  - triggers: [care, manag]
+    canonical: care workflow
+  - triggers: [utilization, manag]
+    canonical: care workflow
+  - triggers: [complian]
+    canonical: compliance
+  - triggers: [audit]
+    canonical: compliance
+  - triggers: [regulatory]
+    canonical: compliance
+  - triggers: [eligib]
+    canonical: eligibility
+  - triggers: [benefit, verif]
+    canonical: eligibility
+  - triggers: [claim]
+    canonical: claims processing
+  - triggers: [adjudicat]
+    canonical: claims processing
+  - triggers: [enroll]
+    canonical: enrollment
+  - triggers: [member, add]
+    canonical: enrollment
+  - triggers: [auth]
+    canonical: authorization
+  - triggers: [prior, auth]
+    canonical: authorization
+  - triggers: [prior, approva]
+    canonical: authorization
+  - triggers: [grievan]
+    canonical: grievance/appeals
+  - triggers: [appeal]
+    canonical: grievance/appeals
+  - triggers: [pharmac]
+    canonical: pharmacy
+  - triggers: [rx]
+    canonical: pharmacy
+  - triggers: [risk, adjust]
+    canonical: risk adjustment
+  - triggers: [hcc]
+    canonical: risk adjustment
+  - triggers: [credential]
+    canonical: credentialing
+  - triggers: [network, manag]
+    canonical: network management
+  - triggers: [provider, network]
+    canonical: network management
+  - triggers: [data, migrat]
+    canonical: data migration
+  - triggers: [system, integr]
+    canonical: system integration
+  - triggers: [api, integr]
+    canonical: system integration
+  - triggers: [platform, integr]
+    canonical: system integration

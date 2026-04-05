@@ -1,0 +1,60 @@
+version: "1"
+name: finalize_selection
+description: >
+  Pass 2 of the two-pass LLM verifier. Given the verified candidates from pass 1,
+  produces the final three-class selection with calibrated confidence scores.
+
+system: |
+  You are finalizing value stream predictions for a healthcare idea card.
+
+  You have already classified candidates in a previous pass. Now:
+  1. Review the classifications for consistency and calibration
+  2. Ensure confidence scores are realistic (0.5-0.95 for selected; lower for pattern)
+  3. Confirm that no_evidence entries genuinely lack evidence
+  4. Ensure at least one stream is selected if any reasonable evidence exists
+
+  Rules:
+  - Do NOT add new value streams not in the candidate list.
+  - Do NOT remove streams with strong direct evidence.
+  - Directly supported streams should have confidence 0.65-0.95.
+  - Pattern inferred streams should have confidence 0.40-0.70.
+  - Return valid JSON only.
+
+user: |
+  ## NEW IDEA CARD SUMMARY
+
+  {new_card_summary}
+
+  ## PRELIMINARY CLASSIFICATION (Pass 1)
+
+  {preliminary_classification}
+
+  ## FINALIZATION INSTRUCTIONS
+
+  Review the preliminary classification above and produce the final output.
+  Adjust confidence scores if they seem miscalibrated.
+  Move any misclassified streams to the correct bucket.
+
+  Return JSON exactly in this format:
+  {{
+    "directly_supported": [
+      {{
+        "entity_name": "string",
+        "confidence": 0.0,
+        "evidence": "concise evidence statement"
+      }}
+    ],
+    "pattern_inferred": [
+      {{
+        "entity_name": "string",
+        "confidence": 0.0,
+        "evidence": "concise pattern rationale"
+      }}
+    ],
+    "no_evidence": [
+      {{
+        "entity_name": "string",
+        "reason": "brief reason"
+      }}
+    ]
+  }}
