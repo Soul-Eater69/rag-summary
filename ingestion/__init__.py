@@ -9,6 +9,19 @@ from .summary_loader import (
     load_ticket_vs_labels,
     load_ticket_title,
 )
+from .function_normalizer import (
+    normalize_function,
+    normalize_functions,
+    FUNCTION_VOCAB,
+)
+from .adapters import (
+    LLMService,
+    EmbeddingService,
+    KGRetrievalService,
+    get_default_llm,
+    get_default_embedding,
+    get_default_kg,
+)
 
 __all__ = [
     "SummaryDoc",
@@ -18,4 +31,7 @@ __all__ = [
     "load_ticket_retrieval_text",
     "load_ticket_vs_labels",
     "load_ticket_title",
+    "normalize_function",
+    "normalize_functions",
+    "FUNCTION_VOCAB",
 ]
