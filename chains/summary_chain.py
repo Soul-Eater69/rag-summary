@@ -1,33 +1,47 @@
 """
 LangChain-style summary generation chain (V5 architecture).
 
-Wraps prompt loading + LLM call + JSON parsing for ticket/card summarization.
-Uses prompt YAML specs from prompts/summary/.
+Wraps prompt loading + LLM call + Pydantic validation for ticket/card summarization.
+Returns SummaryDoc (Pydantic model) rather than raw dicts.
+
+Primary path: provider-native structured output via structured_generate().
+Fallback: text generation + JSON parse + model_validate().
+
+Prompt version hierarchy:
+  v3 (default): schema-light, relies on structured output
+  v2: schema in prompt body (used if v3 not available)
+  v1: legacy full JSON skeleton
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
-from summary_rag.ingestion.adapters import LLMService, get_default_llm, safe_json_extract
+from summary_rag.ingestion.adapters import (
+    LLMService,
+    get_default_llm,
+    structured_generate,
+    safe_json_extract,
+)
 from summary_rag.ingestion.function_normalizer import normalize_functions
+from summary_rag.models.summary_doc import SummaryDoc
 from .prompt_loader import load_prompt, render_prompt
 
 logger = logging.getLogger(__name__)
 
 
-def _enrich_with_canonical(summary: Dict[str, Any]) -> Dict[str, Any]:
-    """Normalize raw function lists to canonical vocabulary."""
-    raw_direct = summary.get("direct_functions_raw") or []
-    raw_implied = summary.get("implied_functions_raw") or []
-    canon_direct = normalize_functions(raw_direct)
-    canon_implied = normalize_functions(raw_implied)
-    summary["direct_functions_canonical"] = canon_direct
-    summary["implied_functions_canonical"] = canon_implied
-    # Legacy compat
-    summary.setdefault("direct_functions", canon_direct)
-    summary.setdefault("implied_functions", canon_implied)
+def _enrich_with_canonical(summary: SummaryDoc) -> SummaryDoc:
+    """Normalize raw function lists to canonical vocabulary, in-place."""
+    canon_direct = normalize_functions(summary.direct_functions_raw)
+    canon_implied = normalize_functions(summary.implied_functions_raw)
+    summary.direct_functions_canonical = canon_direct
+    summary.implied_functions_canonical = canon_implied
+    # Legacy compat fields
+    if not summary.direct_functions:
+        summary.direct_functions = canon_direct
+    if not summary.implied_functions:
+        summary.implied_functions = canon_implied
     return summary
 
 
@@ -35,17 +49,19 @@ class SummaryChain:
     """
     Chain for generating structured semantic summaries.
 
+    Returns SummaryDoc (Pydantic model) for both ticket and card variants.
+
     Usage:
         chain = SummaryChain(llm=my_llm)
-        summary = chain.run_ticket(ticket_id="IDMT-123", title="...", ticket_text="...", vs_labels=[...])
-        card_summary = chain.run_card(card_text="...")
+        doc: SummaryDoc = chain.run_ticket(ticket_id=..., title=..., ticket_text=..., vs_labels=[...])
+        card: SummaryDoc = chain.run_card(card_text=...)
     """
 
     def __init__(
         self,
         *,
         llm: Optional[LLMService] = None,
-        prompt_version: str = "v2",
+        prompt_version: str = "v3",
     ) -> None:
         self._llm = llm
         self._prompt_version = prompt_version
@@ -64,13 +80,9 @@ class SummaryChain:
         ticket_id: str,
         title: str,
         ticket_text: str,
-        vs_labels: list,
-    ) -> Dict[str, Any]:
-        """
-        Generate a structured summary for a historical ticket.
-
-        Returns a SummaryDoc-shaped dict.
-        """
+        vs_labels: List[str],
+    ) -> SummaryDoc:
+        """Generate a structured summary for a historical ticket."""
         system = self._historical_prompt["system"]
         user = render_prompt(
             self._historical_prompt,
@@ -83,42 +95,20 @@ class SummaryChain:
             role="user",
         )
 
-        raw_response = self._call_llm(system=system, user=user)
-        parsed = safe_json_extract(raw_response) or {}
+        doc = self._call_structured(system=system, user=user)
 
-        summary: Dict[str, Any] = {
-            "doc_id": f"summary_{ticket_id}",
-            "ticket_id": ticket_id,
-            "title": title,
-            "short_summary": parsed.get("short_summary", ""),
-            "business_goal": parsed.get("business_goal", ""),
-            "actors": parsed.get("actors") or [],
-            "change_types": parsed.get("change_types") or [],
-            "domain_tags": parsed.get("domain_tags") or [],
-            "evidence_sentences": parsed.get("evidence_sentences") or [],
-            "direct_functions_raw": parsed.get("direct_functions_raw") or [],
-            "implied_functions_raw": parsed.get("implied_functions_raw") or [],
-            "capability_tags": parsed.get("capability_tags") or [],
-            "operational_footprint": parsed.get("operational_footprint") or [],
-            "value_stream_labels": vs_labels or parsed.get("value_stream_labels") or [],
-            "stream_support_type": parsed.get("stream_support_type") or {},
-            "supporting_evidence": [],
-            "co_occurrence_bundle": [],
-            "direct_functions": [],
-            "implied_functions": [],
-            "direct_functions_canonical": [],
-            "implied_functions_canonical": [],
-            "retrieval_text": "",
-        }
-        _enrich_with_canonical(summary)
-        return summary
+        # Overlay stable identifiers not extracted by LLM
+        doc.doc_id = f"summary_{ticket_id}"
+        doc.ticket_id = ticket_id
+        doc.title = title
+        if vs_labels:
+            doc.value_stream_labels = vs_labels
 
-    def run_card(self, *, card_text: str) -> Dict[str, Any]:
-        """
-        Generate a structured summary for a new idea card.
+        _enrich_with_canonical(doc)
+        return doc
 
-        Returns a SummaryDoc-shaped dict (no value_stream_labels).
-        """
+    def run_card(self, *, card_text: str) -> SummaryDoc:
+        """Generate a structured summary for a new idea card."""
         system = self._card_prompt["system"]
         user = render_prompt(
             self._card_prompt,
@@ -126,44 +116,23 @@ class SummaryChain:
             role="user",
         )
 
-        raw_response = self._call_llm(system=system, user=user)
-        parsed = safe_json_extract(raw_response) or {}
+        doc = self._call_structured(system=system, user=user)
+        doc.doc_id = "new_idea_card_summary"
+        doc.ticket_id = ""
 
-        summary: Dict[str, Any] = {
-            "doc_id": "new_idea_card_summary",
-            "ticket_id": "",
-            "title": "",
-            "short_summary": parsed.get("short_summary", ""),
-            "business_goal": parsed.get("business_goal", ""),
-            "actors": parsed.get("actors") or [],
-            "change_types": parsed.get("change_types") or [],
-            "domain_tags": parsed.get("domain_tags") or [],
-            "evidence_sentences": parsed.get("evidence_sentences") or [],
-            "direct_functions_raw": parsed.get("direct_functions_raw") or [],
-            "implied_functions_raw": parsed.get("implied_functions_raw") or [],
-            "capability_tags": parsed.get("capability_tags") or [],
-            "operational_footprint": parsed.get("operational_footprint") or [],
-            "value_stream_labels": [],
-            "stream_support_type": {},
-            "supporting_evidence": [],
-            "co_occurrence_bundle": [],
-            "direct_functions": [],
-            "implied_functions": [],
-            "direct_functions_canonical": [],
-            "implied_functions_canonical": [],
-            "retrieval_text": "",
-        }
-        _enrich_with_canonical(summary)
-        return summary
+        _enrich_with_canonical(doc)
+        return doc
 
-    def _call_llm(self, *, system: str, user: str) -> str:
+    def _call_structured(self, *, system: str, user: str) -> SummaryDoc:
+        """Call LLM and return a validated SummaryDoc. Falls back to empty doc on failure."""
         try:
-            reply = self.llm.generate(
-                query=user,
+            return structured_generate(
+                self.llm,
+                user,
+                SummaryDoc,
                 context="",
                 system_prompt=system,
             )
-            return reply.content or ""
         except Exception as exc:
-            logger.error("[SummaryChain] LLM call failed: %s", exc)
-            return ""
+            logger.error("[SummaryChain] structured_generate failed: %s", exc)
+            return SummaryDoc()

@@ -1,0 +1,34 @@
+version: "3"
+name: finalize_selection
+description: >
+  V3: Schema-light Pass 2 finalizer. Consumes per-candidate judgments and
+  fused scores. Relies on SelectionResult structured output binding.
+  Responsibilities: dedup, calibration, contradiction cleanup, demotion.
+
+system: |
+  You are finalizing value stream predictions for a healthcare idea card.
+  You receive per-candidate judgments from a verification pass.
+
+  Your responsibilities:
+  1. Deduplicate semantically overlapping streams — keep the stronger evidence.
+  2. Move any stream to no_evidence if its rationale is generic or confidence is marginal
+     (below 0.45 for pattern_inferred, below 0.60 for directly_supported).
+  3. Reconcile contradictions between judgments.
+  4. Calibrate confidence to realistic bands:
+     directly_supported: 0.65–0.95 | pattern_inferred: 0.40–0.70
+  5. Prefer fewer, stronger predictions over broad weak coverage.
+
+  Do not add value streams not in the judgment list.
+
+user: |
+  NEW CARD SUMMARY:
+  {new_card_summary}
+
+  PER-CANDIDATE JUDGMENTS:
+  {candidate_judgments}
+
+  FUSED SCORES (for calibration reference):
+  {fused_scores_section}
+
+  Produce the final selection applying deduplication, calibration, and contradiction cleanup.
+  Each selected stream must have a concise evidence statement (under 30 words).

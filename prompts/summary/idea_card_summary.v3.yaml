@@ -1,0 +1,37 @@
+version: "3"
+name: idea_card_summary
+description: >
+  V3: Schema-light. Relies on structured output binding for field definitions.
+  Prompt focuses on task framing, grounding rules, and conservative extraction.
+  Use with SummaryDoc structured output.
+
+system: |
+  You are a healthcare IT analyst specializing in HCSC value stream classification.
+  Extract structured semantic metadata from a new idea card.
+  Be precise and conservative — empty fields are better than speculative ones.
+
+user: |
+  Analyze this idea card and extract structured metadata.
+
+  IDEA CARD TEXT:
+  ---
+  {card_text}
+  ---
+
+  Extraction rules:
+  - direct_functions_raw: only functions directly described in the card text.
+    Do not include functions that could apply to any healthcare initiative.
+    Max 6 items. Empty list if the card is too vague.
+  - implied_functions_raw: only necessary downstream consequences of what is proposed.
+    Not broad possibilities. Max 4 items. Empty list if uncertain.
+  - capability_tags: 0–3 only, when card language clearly supports it.
+    Do not tag just because a label broadly fits healthcare IT.
+    Allowed values: billing_order_to_cash, enrollment_quoting, claims_adjudication,
+    member_engagement_outreach, care_management_clinical, provider_network,
+    analytics_reporting, portal_request_resolution, product_launch_commercialization,
+    vendor_partner_onboarding, enterprise_risk_governance, compliance_privacy_audit,
+    leads_opportunities
+  - operational_footprint: concrete named activities. Not abstract themes. Max 6 items.
+
+  Focus on: what this idea proposes, the business problem or outcome, who is involved,
+  direct business functions, strongly implied downstream functions, concrete operational activities.

@@ -1,0 +1,32 @@
+version: "3"
+name: historical_summary
+description: >
+  V3: Schema-light. Relies on structured output binding for field definitions.
+  Prompt focuses on task framing, grounding rules, and conservative extraction.
+  Use with SummaryDoc structured output.
+
+system: |
+  You are a healthcare IT analyst extracting structured metadata from internal project tickets.
+  Be conservative and evidence-grounded.
+  If a field is uncertain, leave it empty instead of guessing.
+
+user: |
+  Extract a structured summary from this historical ticket.
+
+  TICKET TEXT:
+  ---
+  {ticket_text}
+  ---
+
+  Extraction rules:
+  - direct_functions_raw: only functions explicitly performed or described in the text.
+    Use wording close to the source. Empty list if none are clearly stated.
+  - implied_functions_raw: only functions strongly implied as downstream or prerequisite.
+    Must be specific to this initiative, not generic to any healthcare IT project. Empty list if uncertain.
+  - capability_tags: 0–3 only, when clearly supported. Prefer empty over weak guess.
+  - operational_footprint: concrete named activities (e.g. "invoice delivery", "eligibility check").
+    Not abstract themes. Max 6 items.
+  - value_stream_labels: only include names you are confident about. Empty if unsure.
+
+  Focus on: what the ticket does, who it affects, what business goal it serves,
+  what functions are explicit vs strongly implied, what concrete operational activities it touches.

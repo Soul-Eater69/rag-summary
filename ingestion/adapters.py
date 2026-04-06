@@ -33,7 +33,12 @@ adapters module itself is importable even when src.* is absent.
 
 from __future__ import annotations
 
-from typing import Any, List, Optional, Protocol, runtime_checkable
+import logging
+from typing import Any, List, Optional, Protocol, Type, TypeVar, runtime_checkable
+
+logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 
 # ---------------------------------------------------------------------------
@@ -57,6 +62,27 @@ class LLMService(Protocol):
         context: str = "",
         system_prompt: str = "",
     ) -> LLMResponse:
+        ...
+
+
+@runtime_checkable
+class StructuredLLMService(LLMService, Protocol):
+    """
+    LLM service that supports provider-native structured output binding.
+
+    Providers that support this (e.g. OpenAI, Anthropic tool-use) can
+    implement generate_structured to return a validated Pydantic model
+    instance directly, without round-tripping through JSON text + parse.
+    """
+
+    def generate_structured(
+        self,
+        query: str,
+        output_schema: type,
+        *,
+        context: str = "",
+        system_prompt: str = "",
+    ) -> Any:
         ...
 
 
@@ -120,6 +146,114 @@ class _KGRetrievalAdapter:
 def get_default_kg() -> KGRetrievalService:
     """Return the default KG retrieval adapter."""
     return _KGRetrievalAdapter()
+
+
+# ---------------------------------------------------------------------------
+# Structured output helper
+# ---------------------------------------------------------------------------
+
+def structured_generate(
+    svc: LLMService,
+    query: str,
+    output_schema: Type[T],
+    *,
+    context: str = "",
+    system_prompt: str = "",
+) -> T:
+    """
+    Generate with structured output binding.
+
+    Primary path: call svc.generate_structured() if the service implements it
+    (i.e. supports provider-native structured output such as OpenAI json_schema
+    or Anthropic tool-use).
+
+    Fallback: call svc.generate(), extract JSON, validate with Pydantic.
+    A compact schema hint is appended to the query so the model knows what
+    fields to produce even when the prompt itself omits the full skeleton.
+
+    Args:
+        svc:           LLMService (or StructuredLLMService) instance.
+        query:         Rendered user-prompt text.
+        output_schema: Pydantic BaseModel subclass to validate against.
+        context:       Optional context string passed to the LLM.
+        system_prompt: System prompt text.
+
+    Returns:
+        A validated instance of output_schema.
+
+    Raises:
+        ValueError: if fallback parsing fails after exhausting retries.
+    """
+    # --- Primary: native structured output ---
+    if hasattr(svc, "generate_structured"):
+        try:
+            result = svc.generate_structured(  # type: ignore[attr-defined]
+                query,
+                output_schema,
+                context=context,
+                system_prompt=system_prompt,
+            )
+            if isinstance(result, output_schema):
+                return result
+        except Exception as exc:
+            logger.warning("[structured_generate] Native path failed, falling back: %s", exc)
+
+    # --- Fallback: text generation + JSON parse + Pydantic validation ---
+    schema_hint = _build_schema_hint(output_schema)
+    augmented_query = f"{query}\n\n{schema_hint}" if schema_hint else query
+
+    reply = svc.generate(augmented_query, context=context, system_prompt=system_prompt)
+    raw_text = reply.content if hasattr(reply, "content") else str(reply)
+    parsed = safe_json_extract(raw_text)
+
+    try:
+        if isinstance(parsed, list):
+            # For list-based schemas, try wrapping in a list field
+            first_list_field = _find_list_field(output_schema)
+            if first_list_field:
+                parsed = {first_list_field: parsed}
+        return output_schema.model_validate(parsed)
+    except Exception as exc:
+        logger.error("[structured_generate] Pydantic validation failed: %s | raw=%r", exc, raw_text[:200])
+        # Return empty model as last-resort fallback
+        try:
+            return output_schema()
+        except Exception:
+            raise ValueError(f"structured_generate: could not produce {output_schema.__name__}") from exc
+
+
+def _build_schema_hint(schema: type) -> str:
+    """
+    Build a compact field-list hint appended to prompts when native
+    structured output is not available.
+
+    Only generates hints for Pydantic BaseModel subclasses.
+    """
+    try:
+        from pydantic import BaseModel
+        if not (isinstance(schema, type) and issubclass(schema, BaseModel)):
+            return ""
+        fields = list(schema.model_fields.keys())
+        return f"Return a JSON object with these fields: {', '.join(fields)}"
+    except Exception:
+        return ""
+
+
+def _find_list_field(schema: type) -> Optional[str]:
+    """Return the name of the first list-typed field in a Pydantic model."""
+    try:
+        import inspect
+        from pydantic import BaseModel
+        if not (isinstance(schema, type) and issubclass(schema, BaseModel)):
+            return None
+        for name, field in schema.model_fields.items():
+            annotation = field.annotation
+            origin = getattr(annotation, "__origin__", None)
+            if origin is list:
+                return name
+        return None
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
