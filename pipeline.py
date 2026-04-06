@@ -1,27 +1,35 @@
 """
-Summary-first RAG pipeline orchestrator (V5 architecture) — thin wrapper.
+Summary-first RAG pipeline orchestrator (V6 architecture) — thin wrapper.
 
 This module is the public API entry point. All orchestration logic lives in:
-  - graph/build_prediction_graph.py  (LangGraph graph + sequential fallback)
+  - graph/build_prediction_graph.py  (LangGraph 14-node graph + sequential fallback)
   - graph/nodes.py                   (per-step node functions)
   - graph/edges.py                   (conditional routing logic)
   - chains/                          (LangChain prompt chains)
   - models/                          (Pydantic data contracts)
   - config/                          (YAML configs: capability_map, source_weights, function_vocab)
 
-End-to-end flow (implemented in graph/nodes.py):
-  1.  Clean + normalize new card text
-  2.  Generate semantic summary (raw + canonical functions, capability tags)
-  3.  Search FAISS summary index for top analog historical tickets
-  4.  Collect VS evidence from analogs (including capability_tags, footprint)
-  5.  Retrieve KG candidate value streams
-  6.  Capability mapping enrichment
-  7.  Extract card-level summary/chunk/footprint candidates
-  8.  Collect raw chunks for top tickets (attachment proxy source)
-  9.  Build CandidateEvidence objects from all 7 sources
-  10. Source-aware fused ranking + candidate floor guardrail
-  11. Two-pass LLM verifier (Pass 1: verify; Pass 2: finalize + calibrate)
-  12. Finalize structured 3-class result
+End-to-end flow — 14 nodes (implemented in graph/nodes.py):
+  1.  clean_and_summarize     — normalize text, generate semantic summary
+  2.  retrieve_analogs        — FAISS search for top analog historical tickets
+  3.  collect_vs_evidence     — VS support from analogs + bundle/downstream pattern detection
+  4.  retrieve_kg             — KG candidate value streams
+  5.  retrieve_themes         — theme-cluster candidates (auto-discovers FAISS index;
+                                falls back to always-active KeywordThemeService)
+  6.  map_capabilities        — capability map enrichment
+  7.  extract_card_candidates — summary/chunk/attachment_heuristic/footprint candidates
+  8.  collect_raw_evidence    — raw evidence chunks + attachment proxy candidates
+  9.  parse_attachments       — section-level parsing → attachment_native candidates
+                                (reads _attachment_contents or falls back to card text)
+  10. build_evidence          — merge all 7 sources into CandidateEvidence; inject
+                                bundle/downstream pattern score boosts
+  11. fuse_scores             — source-aware weighted fusion + quality multipliers +
+                                theme promotion bonus + candidate floor guardrail
+  12. verify_candidates       — Pass 1 LLM verifier → per-candidate judgments
+  13. finalize_selection      — Pass 2 LLM selector → three-class SelectionResult
+  14. finalize_output         — dedup, normalize, produce final output
+
+7 evidence sources: chunk | summary | attachment | theme | kg | historical | capability
 """
 
 from __future__ import annotations
@@ -50,7 +58,7 @@ def run_summary_rag_pipeline(
     intake_date: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Run the V5 summary-first RAG pipeline.
+    Run the V6 summary-first RAG pipeline.
 
     Returns structured result with three-class output:
       - directly_supported: list of {entity_name, confidence, evidence}
@@ -145,6 +153,9 @@ def _persist_debug_artifacts(output_dir: str, result: Dict[str, Any]) -> None:
             "bundle_patterns.json": result.get("bundle_patterns", []),
             "downstream_chains.json": result.get("downstream_chains", []),
             "theme_candidates.json": result.get("theme_candidates", []),
+            # V6: attachment parsing artifacts
+            "attachment_docs.json": result.get("attachment_docs", []),
+            "attachment_native_candidates.json": result.get("attachment_native_candidates", []),
             "eval_log.json": {
                 "directly_supported": [vs.get("entity_name") for vs in result.get("directly_supported", [])],
                 "pattern_inferred": [vs.get("entity_name") for vs in result.get("pattern_inferred", [])],

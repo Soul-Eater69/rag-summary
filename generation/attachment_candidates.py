@@ -8,17 +8,24 @@ highest-quality attachment signal.
 
 sub_source = "attachment_native"
 
-Scoring:
-  Budget / requirements / scope sections get higher baseline scores (0.55–0.72)
-  than heading / body sections (0.40–0.55), because they tend to be more
-  semantically focused.
+Two scoring layers:
+  1. Capability-map cue scan (all section types) — standard cue density × ceiling
+  2. Content-signal extraction (section-type-aware):
+     - Budget sections:      financial terms ($, million, cost, spend, premium) → billing/payment VS boost
+     - Scope/requirements:   action-verb phrases (implement, configure, integrate) → functional VS boost
+     - Table sections:       column header keywords → multi-VS signals
+     These content signals add a secondary score increment on top of cue scan.
+
+Per-section-type score ceilings:
+  budget=0.72, scope/requirements=0.68, exhibit/appendix=0.65, table=0.60, heading=0.55, body=0.50
 """
 
 from __future__ import annotations
 
 import logging
 import pathlib
-from typing import Any, Dict, List, Optional, Set
+import re
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
 
@@ -74,6 +81,75 @@ def _load_capability_map() -> Dict[str, Dict[str, Any]]:
         return {}
 
 
+# ---------------------------------------------------------------------------
+# Content-signal extractors (section-type-aware)
+# ---------------------------------------------------------------------------
+
+# Financial signals found in budget sections — suggest billing/payment VS
+_FINANCIAL_RE = re.compile(
+    r"(\$[\d,]+|\d+[\s]*million|\d+[\s]*m\b|budget|cost estimate|spend|investment|premium|roi)",
+    re.IGNORECASE,
+)
+
+# Action-verb phrases found in scope/requirements — suggest functional VS
+_ACTION_VERB_RE = re.compile(
+    r"\b(implement|configure|integrate|enable|deploy|automate|migrate|build|support|"
+    r"process|manage|establish|onboard|enroll|adjudicate|authorize|report)\b",
+    re.IGNORECASE,
+)
+
+# Financial VS cue terms for content-signal boosting
+_FINANCIAL_VS_CUES = {
+    "billing", "invoice", "payment", "remittance", "premium",
+    "cost", "budget", "financial", "revenue",
+}
+
+
+def _extract_budget_signals(content: str) -> Tuple[bool, List[str]]:
+    """Return (has_financial_content, matched_terms)."""
+    matches = _FINANCIAL_RE.findall(content)
+    return bool(matches), [m.strip().lower() for m in matches[:5]]
+
+
+def _extract_scope_signals(content: str) -> Tuple[int, List[str]]:
+    """Return (action_count, matched_verbs) from scope/requirements content."""
+    matches = _ACTION_VERB_RE.findall(content)
+    deduped = list(dict.fromkeys(m.lower() for m in matches))
+    return len(deduped), deduped[:6]
+
+
+def _content_score_boost(section_type: str, content: str) -> Tuple[float, str]:
+    """
+    Compute a content-signal-based score increment for high-value section types.
+
+    Returns (boost, reason_suffix). Boost is added on top of cue-scan score,
+    capped so the total never exceeds the section ceiling.
+    """
+    if section_type in ("budget",):
+        has_financial, terms = _extract_budget_signals(content)
+        if has_financial:
+            boost = min(0.08, 0.02 * len(terms))
+            return boost, f"financial_signals:{','.join(terms[:3])}"
+
+    if section_type in ("scope", "requirements"):
+        count, verbs = _extract_scope_signals(content)
+        if count >= 2:
+            boost = min(0.07, 0.015 * count)
+            return boost, f"action_verbs:{','.join(verbs[:3])}"
+
+    if section_type in ("table",):
+        # Tables with multiple domain words → richer signal
+        words = set(re.findall(r"\b\w{4,}\b", content.lower()))
+        domain_hits = words & {
+            "claim", "claims", "billing", "enrollment", "member", "provider",
+            "payment", "eligibility", "authorization", "referral", "network",
+        }
+        if len(domain_hits) >= 2:
+            return 0.05, f"table_domain_terms:{','.join(sorted(domain_hits)[:3])}"
+
+    return 0.0, ""
+
+
 def extract_attachment_native_candidates(
     attachment_docs: List[Dict[str, Any]],
     *,
@@ -126,7 +202,10 @@ def extract_attachment_native_candidates(
                 score *= cluster.get("weight", 1.0)
                 score = round(min(ceiling, score), 3)
 
-                for vs_name in cluster["promote_value_streams"]:
+                # Content-signal boost (section-type-aware, runs once per section)
+            boost, boost_reason = _content_score_boost(section_type, content)
+
+            for vs_name in cluster["promote_value_streams"]:
                     if allowed_names is not None and vs_name not in allowed_names:
                         continue
                     # Keep highest score per (vs_name, attachment_id, section_id) triple
@@ -134,19 +213,20 @@ def extract_attachment_native_candidates(
                     if dedup_key in seen:
                         continue
                     seen.add(dedup_key)
+                    final_score = round(min(ceiling, score + boost), 3)
+                    reason = f"section:{section_type},cues:{','.join((direct_hits + indirect_hits)[:3])}"
+                    if boost_reason:
+                        reason += f",{boost_reason}"
                     candidates.append({
                         "entity_name": vs_name,
-                        "score": score,
+                        "score": final_score,
                         "source": "attachment",
                         "sub_source": "attachment_native",
                         "attachment_id": attachment_id,
                         "section_id": section_id,
                         "section_title": section_title,
                         "section_type": section_type,
-                        "match_reason": (
-                            f"section:{section_type},"
-                            f"cues:{','.join((direct_hits + indirect_hits)[:3])}"
-                        ),
+                        "match_reason": reason,
                     })
 
     return candidates
