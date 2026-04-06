@@ -46,6 +46,7 @@ def run_summary_rag_pipeline(
     debug_output_dir: Optional[str] = None,
     trace_mode: bool = False,
     llm=None,
+    theme_svc=None,
 ) -> Dict[str, Any]:
     """
     Run the V5 summary-first RAG pipeline.
@@ -78,6 +79,7 @@ def run_summary_rag_pipeline(
         max_raw_evidence_tickets=max_raw_evidence_tickets,
         min_candidate_floor=min_candidate_floor,
         llm=llm,
+        theme_svc=theme_svc,
     )
 
     if debug_output_dir:

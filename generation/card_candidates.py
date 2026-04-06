@@ -210,6 +210,96 @@ def extract_chunk_candidates(
     return candidates
 
 
+def extract_card_attachment_candidates(
+    cleaned_text: str,
+    *,
+    allowed_names: Optional[Set[str]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Generate attachment-source candidates from card-native attachment signals.
+
+    The current pipeline receives idea cards as extracted text (from PPT/PDF).
+    Attachments embedded in or referenced by the card are already present in
+    ``cleaned_text`` — their content has been extracted during ingestion.
+
+    This function detects attachment-indicator patterns in the card text:
+    exhibits, appendices, tables, budget documents, scope documents,
+    roadmaps, and file references. When such signals co-occur with
+    domain-relevant cue terms from the capability map, we treat them as
+    evidence that the card contains detailed supporting material for those
+    domains — which warrants a moderate attachment-source score.
+
+    This is card-native (not analog-proxy): it reasons about the NEW card's
+    own content structure, not about what historical analogs happened to say.
+
+    Score range: 0.35–0.58 (lower than chunk/summary; attachment signal is
+    structural rather than semantic, so confidence is bounded).
+    """
+    if not cleaned_text or not cleaned_text.strip():
+        return []
+
+    capability_map = _load_capability_map()
+    if not capability_map:
+        return []
+
+    lower_text = cleaned_text.lower()
+
+    # Attachment indicator terms — suggest detailed supporting material is present
+    _ATTACHMENT_INDICATORS = {
+        "attachment", "attached", "appendix", "appendices", "exhibit",
+        "table", "figure", "budget", "scope", "roadmap", "implementation plan",
+        "project plan", "specification", "spec", "requirement",
+        ".xlsx", ".xls", ".pdf", ".pptx", ".docx", "spreadsheet",
+        "see below", "refer to", "as shown", "as described",
+    }
+
+    # Check how many attachment indicators appear in the card text
+    attachment_signal_count = sum(1 for ind in _ATTACHMENT_INDICATORS if ind in lower_text)
+    if attachment_signal_count == 0:
+        return []
+
+    # Attachment signal strength: 0.0–1.0 based on indicator density
+    attachment_strength = min(1.0, attachment_signal_count / 4.0)
+
+    _ATTACH_BASE_SCORE = 0.35
+    _ATTACH_MAX_SCORE = 0.58
+
+    candidates: List[Dict[str, Any]] = []
+    seen: Set[str] = set()
+
+    for cluster_name, cluster in capability_map.items():
+        # Check for domain cues co-occurring with attachment signals
+        direct_hits = [t for t in cluster.get("direct_cues", set()) if t in lower_text]
+        indirect_hits = [t for t in cluster.get("indirect_cues", set()) if t in lower_text]
+
+        if not direct_hits and not indirect_hits:
+            continue
+
+        # Score: attachment strength × domain cue density × cluster weight
+        cue_strength = (len(direct_hits) + 0.5 * len(indirect_hits)) / 4.0
+        combined = attachment_strength * min(1.0, cue_strength)
+        attach_score = _ATTACH_BASE_SCORE + (_ATTACH_MAX_SCORE - _ATTACH_BASE_SCORE) * combined
+        attach_score *= cluster.get("weight", 1.0)
+
+        for vs_name in cluster["promote_value_streams"]:
+            if vs_name in seen:
+                continue
+            if allowed_names is not None and vs_name not in allowed_names:
+                continue
+            candidates.append({
+                "entity_name": vs_name,
+                "score": round(min(_ATTACH_MAX_SCORE, attach_score), 3),
+                "source": "attachment",
+                "match_reason": (
+                    f"card_attachment_signal:{attachment_signal_count}_indicators,"
+                    f"cues:{','.join((direct_hits + indirect_hits)[:3])}"
+                ),
+            })
+            seen.add(vs_name)
+
+    return candidates
+
+
 def extract_historical_footprint_candidates(
     analog_tickets: List[Dict[str, Any]],
     *,

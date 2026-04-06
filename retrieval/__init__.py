@@ -4,6 +4,7 @@ from .summary_retriever import (
     retrieve_kg_candidates,
     collect_value_stream_evidence,
     collect_attachment_candidates,
+    enrich_historical_candidates,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "retrieve_kg_candidates",
     "collect_value_stream_evidence",
     "collect_attachment_candidates",
+    "enrich_historical_candidates",
 ]

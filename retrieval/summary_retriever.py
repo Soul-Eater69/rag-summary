@@ -278,6 +278,69 @@ def collect_attachment_candidates(
 
     return candidates
 
+def enrich_historical_candidates(
+    vs_support: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """
+    Enrich vs_support entries with support-type-weighted scores and evidence phrases.
+
+    Two improvements over raw vs_support:
+
+    1. Score calibration by dominant support type
+       Historical analogs now record ``stream_support_types`` — a list of the
+       classification each analog assigned to the stream
+       ("direct", "downstream", "pattern").
+       We compute the dominant type and apply a weight multiplier:
+         - "direct"     → ×1.00  (analog explicitly performed this stream)
+         - "downstream" → ×0.80  (analog depended on this stream downstream)
+         - "pattern"    → ×0.60  (analog matched by pattern/co-occurrence only)
+       This gives "direct" historical analogs more signal than "pattern" ones.
+
+    2. Evidence snippet enrichment
+       operational_footprint items and supporting_evidence strings from analogs
+       are surfaced as structured evidence phrases, giving the LLM verifier
+       concrete text to reason over rather than just aggregate scores.
+
+    Returns a copy of vs_support with added keys:
+      - score: calibrated (replaces best_score as historical candidate score)
+      - dominant_support_type: str
+      - evidence_phrases: List[str]
+    """
+    _TYPE_WEIGHT = {"direct": 1.00, "downstream": 0.80, "pattern": 0.60}
+
+    result = []
+    for entry in vs_support:
+        support_types = entry.get("stream_support_types") or []
+        base_score = float(entry.get("best_score") or 0.0)
+
+        # Compute dominant support type
+        type_counts: Dict[str, int] = {}
+        for t in support_types:
+            type_counts[t] = type_counts.get(t, 0) + 1
+        dominant_type = max(type_counts, key=lambda k: type_counts[k]) if type_counts else "pattern"
+
+        weight = _TYPE_WEIGHT.get(dominant_type, 0.70)
+        calibrated_score = round(min(1.0, base_score * weight), 4)
+
+        # Build evidence phrases from footprint + supporting evidence
+        evidence_phrases: List[str] = []
+        for fp in (entry.get("operational_footprint") or [])[:4]:
+            if fp and fp.strip():
+                evidence_phrases.append(f"footprint: {fp}")
+        for ev in (entry.get("supporting_evidence") or [])[:3]:
+            if ev and ev.strip():
+                evidence_phrases.append(f"evidence: {ev}")
+
+        result.append({
+            **entry,
+            "score": calibrated_score,
+            "dominant_support_type": dominant_type,
+            "evidence_phrases": evidence_phrases,
+        })
+
+    return result
+
+
 # -----------------------------------------------------------------------------
 # Internal helpers
 # -----------------------------------------------------------------------------

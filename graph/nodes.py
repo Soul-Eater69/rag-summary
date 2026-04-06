@@ -61,7 +61,10 @@ from summary_rag.generation.card_candidates import (
     extract_summary_candidates,
     extract_chunk_candidates,
     extract_historical_footprint_candidates,
+    extract_card_attachment_candidates,
 )
+from summary_rag.retrieval import enrich_historical_candidates
+from summary_rag.ingestion.adapters import get_default_theme, ThemeRetrievalService
 from summary_rag.chains.summary_chain import SummaryChain
 from summary_rag.chains.selector_verify_chain import SelectorVerifyChain
 from summary_rag.chains.selector_finalize_chain import SelectorFinalizeChain
@@ -72,10 +75,11 @@ from summary_rag.generation.candidate_evidence import SOURCE_THEME
 
 logger = logging.getLogger(__name__)
 
-# Theme source is not yet wired to a live runtime retrieval path.
-# It is preserved in fusion weights for future activation, but currently
-# produces zero scores for all candidates at prediction time.
-_THEME_SOURCE_ACTIVE = False
+# Theme source is wired as a first-class graph node (node_retrieve_themes).
+# By default it uses _NoopThemeService (returns []) so the theme slot stays at 0.
+# To activate: pass a ThemeRetrievalService implementation via the _theme_svc
+# key in initial state or through run_prediction_graph(theme_svc=...).
+_THEME_DEFAULT_INACTIVE = True  # True = no real theme service configured yet
 
 _VSR_SUFFIX_RE = re.compile(r"\s*(\s*VSR[0-9A-Z-]*\s*)\s*$", re.IGNORECASE)
 _EMPTY_PARENS_SUFFIX_RE = re.compile(r"\s*\(\s*\)\s*$")
@@ -156,10 +160,10 @@ def node_clean_and_summarize(state: PredictionState) -> Dict[str, Any]:
         errors.append("empty_input_text")
         return {"cleaned_text": cleaned_text, "errors": errors}
 
-    if not _THEME_SOURCE_ACTIVE:
+    if _THEME_DEFAULT_INACTIVE and not state.get("_theme_svc"):  # type: ignore[call-overload]
         logger.debug(
-            "[node_clean_and_summarize] Theme source inactive — "
-            "theme score will be 0 for all candidates in this run"
+            "[node_clean_and_summarize] Theme source uses noop default — "
+            "pass _theme_svc to activate (see ThemeRetrievalService in adapters.py)"
         )
 
     llm: Optional[LLMService] = state.get("_llm")  # type: ignore[assignment]
@@ -253,6 +257,51 @@ def node_retrieve_kg(state: PredictionState) -> Dict[str, Any]:
     return {"kg_candidates": kg_candidates}
 
 
+def node_retrieve_themes(state: PredictionState) -> Dict[str, Any]:
+    """
+    Step 4b: Retrieve theme-cluster candidates via ThemeRetrievalService.
+
+    Inactive by default (_NoopThemeService returns []). To activate:
+      - Implement ThemeRetrievalService (see ingestion/adapters.py)
+      - Pass it as _theme_svc in the initial state or via run_prediction_graph()
+
+    When active, theme candidates feed directly into the SOURCE_THEME slot in
+    CandidateEvidence, adding a seventh independent evidence dimension.
+    """
+    t = time.time()
+    new_card_summary = state.get("new_card_summary", {})
+    cleaned_text = state.get("cleaned_text", "")
+    allowed_names = state.get("allowed_value_stream_names")
+    theme_svc = state.get("_theme_svc") or get_default_theme()  # type: ignore[call-overload]
+
+    from summary_rag.ingestion import build_retrieval_text
+    query = build_retrieval_text(new_card_summary).strip() or cleaned_text
+
+    theme_candidates: List[Dict[str, Any]] = []
+    try:
+        raw = theme_svc.retrieve_theme_candidates(  # type: ignore[union-attr]
+            query,
+            top_k=10,
+            allowed_names=list(allowed_names) if allowed_names else None,
+        )
+        theme_candidates = raw or []
+    except Exception as exc:
+        logger.warning("[node_retrieve_themes] Failed: %s", exc)
+
+    if theme_candidates:
+        logger.info(
+            "[node_retrieve_themes] done in %.2fs | %d theme candidates",
+            time.time() - t, len(theme_candidates),
+        )
+    else:
+        logger.debug(
+            "[node_retrieve_themes] inactive — 0 candidates "
+            "(wire a ThemeRetrievalService via _theme_svc to activate)"
+        )
+
+    return {"theme_candidates": theme_candidates}
+
+
 def node_map_capabilities(state: PredictionState) -> Dict[str, Any]:
     """Step 5: Capability mapping and candidate enrichment."""
     t = time.time()
@@ -283,7 +332,15 @@ def node_map_capabilities(state: PredictionState) -> Dict[str, Any]:
 
 
 def node_extract_card_candidates(state: PredictionState) -> Dict[str, Any]:
-    """Step 5b: Extract summary/chunk/footprint candidates from the card itself."""
+    """
+    Step 5b: Extract card-native candidates from the new card's own content.
+
+    Four extraction paths (all LLM-free):
+    - summary_candidates: capability_tags + canonical functions → capability map
+    - chunk_candidates: cue term scan over cleaned card text → capability map
+    - card_attachment_candidates: attachment indicators × domain cues → attachment source
+    - footprint_candidates: analog capability_tags × capability map → pattern signals
+    """
     t = time.time()
     new_card_summary = state.get("new_card_summary", {})
     cleaned_text = state.get("cleaned_text", "")
@@ -293,15 +350,20 @@ def node_extract_card_candidates(state: PredictionState) -> Dict[str, Any]:
     allowed_set = set(allowed_names) if allowed_names else None
     summary_candidates = extract_summary_candidates(new_card_summary, allowed_names=allowed_set)
     chunk_candidates = extract_chunk_candidates(cleaned_text, allowed_names=allowed_set)
+    card_attachment_candidates = extract_card_attachment_candidates(cleaned_text, allowed_names=allowed_set)
     footprint_candidates = extract_historical_footprint_candidates(analog_tickets, allowed_names=allowed_set)
 
     logger.info(
-        "[node_extract_card_candidates] done in %.2fs | summary=%d | chunk=%d | footprint=%d",
-        time.time() - t, len(summary_candidates), len(chunk_candidates), len(footprint_candidates),
+        "[node_extract_card_candidates] done in %.2fs | "
+        "summary=%d | chunk=%d | card_attach=%d | footprint=%d",
+        time.time() - t,
+        len(summary_candidates), len(chunk_candidates),
+        len(card_attachment_candidates), len(footprint_candidates),
     )
     return {
         "summary_candidates": summary_candidates,
         "chunk_candidates": chunk_candidates,
+        "card_attachment_candidates": card_attachment_candidates,
         "historical_footprint_candidates": footprint_candidates,
     }
 
@@ -345,25 +407,49 @@ def node_collect_raw_evidence(state: PredictionState) -> Dict[str, Any]:
 
 
 def node_build_evidence(state: PredictionState) -> Dict[str, Any]:
-    """Step 7: Build CandidateEvidence objects from all sources."""
+    """
+    Step 7: Build CandidateEvidence objects from all 7 sources.
+
+    Historical candidates are now enriched with support-type-weighted scores
+    and operational evidence phrases before being merged into CandidateEvidence.
+
+    Source mapping:
+      kg          ← KG retrieval candidates
+      historical  ← vs_support (type-weighted) + footprint candidates
+      capability  ← capability_mapping candidates
+      chunk       ← chunk_candidates (card text cue scan)
+      attachment  ← card_attachment_candidates (card-native) + analog proxy candidates
+      summary     ← summary_candidates (injected separately)
+      theme       ← theme_candidates (live if ThemeRetrievalService is wired)
+    """
     t = time.time()
     vs_support = state.get("historical_value_stream_support", [])
     kg_candidates = state.get("kg_candidates", [])
     capability_mapping = state.get("capability_mapping", {})
     chunk_candidates = state.get("chunk_candidates", [])
-    attachment_candidates = state.get("attachment_candidates", [])
+    # Merge card-native + analog-proxy attachment candidates
+    card_attach = state.get("card_attachment_candidates", [])
+    analog_attach = state.get("attachment_candidates", [])
+    all_attachment = card_attach + [a for a in analog_attach if a.get("entity_name")]
     footprint_candidates = state.get("historical_footprint_candidates", [])
     summary_candidates = state.get("summary_candidates", [])
+    theme_candidates = state.get("theme_candidates", [])
 
+    # Enrich vs_support with support-type-weighted scores and evidence phrases
+    enriched_vs_support = enrich_historical_candidates(vs_support)
     historical_candidates = [
         {
             "entity_name": s.get("entity_name", ""),
-            "score": float(s.get("best_score") or 0.0),
-            "supporting_evidence": s.get("supporting_evidence", []) or s.get("supporting_functions", []),
+            "score": float(s.get("score") or 0.0),  # calibrated score from enrichment
+            "supporting_evidence": (
+                s.get("evidence_phrases", [])   # operational footprint phrases
+                or s.get("supporting_evidence", [])
+                or s.get("supporting_functions", [])
+            ),
             "capability_tags": s.get("capability_tags", []),
             "operational_footprint": s.get("operational_footprint", []),
         }
-        for s in vs_support
+        for s in enriched_vs_support
     ]
 
     kg_for_evidence = [
@@ -383,14 +469,24 @@ def node_build_evidence(state: PredictionState) -> Dict[str, Any]:
         historical_candidates=all_historical,
         capability_candidates=capability_mapping.get("capability_candidates", []),
         chunk_candidates=chunk_candidates,
-        attachment_candidates=attachment_candidates,
+        attachment_candidates=all_attachment,
+        theme_candidates=theme_candidates,
     )
     _inject_summary_candidates(candidate_evidence, summary_candidates)
 
+    active_theme = len(theme_candidates) > 0
+    active_attach = len(all_attachment) > 0
     logger.info(
-        "[node_build_evidence] done in %.2fs | %d candidates",
+        "[node_build_evidence] done in %.2fs | %d candidates | "
+        "theme_active=%s | card_attach=%d | analog_attach=%d",
         time.time() - t, len(candidate_evidence),
+        active_theme, len(card_attach), len(analog_attach),
     )
+    if not active_theme:
+        logger.debug(
+            "[node_build_evidence] theme source inactive — wire ThemeRetrievalService to enable"
+        )
+
     return {"candidate_evidence": candidate_evidence}
 
 
