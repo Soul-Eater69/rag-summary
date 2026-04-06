@@ -111,6 +111,28 @@ class KGRetrievalService(Protocol):
         ...
 
 
+@runtime_checkable
+class ThemeRetrievalService(Protocol):
+    """
+    Theme-cluster candidate retrieval interface.
+
+    Implementations should return candidates shaped as:
+      {"entity_name": str, "score": float, "theme_cluster": str, "description": str}
+
+    The default implementation (_NoopThemeService) returns an empty list.
+    Wire a real implementation to activate the theme evidence source.
+    """
+
+    def retrieve_theme_candidates(
+        self,
+        query_text: str,
+        *,
+        top_k: int = 10,
+        allowed_names: Optional[List[str]] = None,
+    ) -> List[dict]:
+        ...
+
+
 # ---------------------------------------------------------------------------
 # Default factory functions (lazy import from src.*)
 # ---------------------------------------------------------------------------
@@ -146,6 +168,36 @@ class _KGRetrievalAdapter:
 def get_default_kg() -> KGRetrievalService:
     """Return the default KG retrieval adapter."""
     return _KGRetrievalAdapter()
+
+
+class _NoopThemeService:
+    """
+    Default theme retrieval service — inactive until a real implementation is wired.
+
+    Returns an empty list so the theme source slot stays at 0 without errors.
+    Replace with a real ThemeRetrievalService implementation to activate.
+
+    Example (in run_prediction_graph / pipeline config):
+        from my_infra import ThemeSearchClient
+        pipeline_result = run_summary_rag_pipeline(
+            ppt_text,
+            theme_svc=ThemeSearchClient(),
+        )
+    """
+
+    def retrieve_theme_candidates(
+        self,
+        query_text: str,
+        *,
+        top_k: int = 10,
+        allowed_names: Optional[List[str]] = None,
+    ) -> List[dict]:
+        return []
+
+
+def get_default_theme() -> ThemeRetrievalService:
+    """Return the default (noop) theme service. Wire a real implementation to activate."""
+    return _NoopThemeService()  # type: ignore[return-value]
 
 
 # ---------------------------------------------------------------------------

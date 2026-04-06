@@ -40,12 +40,16 @@ class PredictionState(TypedDict, total=False):
     capability_mapping: Dict[str, Any]
     enriched_candidates: List[Dict[str, Any]]
 
+    # --- Step 4b: Theme candidates (live if ThemeRetrievalService is wired) ---
+    theme_candidates: List[Dict[str, Any]]
+
     # --- Step 5b: Card-level candidates ---
     summary_candidates: List[Dict[str, Any]]
     chunk_candidates: List[Dict[str, Any]]
+    card_attachment_candidates: List[Dict[str, Any]]  # card-native attachment signals
     historical_footprint_candidates: List[Dict[str, Any]]
 
-    # --- Step 6: Raw evidence (for attachment proxy) ---
+    # --- Step 6: Raw evidence (for attachment proxy from analogs) ---
     raw_evidence: List[Dict[str, Any]]
     attachment_candidates: List[Dict[str, Any]]
 

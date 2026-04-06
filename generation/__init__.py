@@ -6,6 +6,7 @@ from .card_candidates import (
     extract_summary_candidates,
     extract_chunk_candidates,
     extract_historical_footprint_candidates,
+    extract_card_attachment_candidates,
 )
 
 __all__ = [
@@ -17,4 +18,5 @@ __all__ = [
     "extract_summary_candidates",
     "extract_chunk_candidates",
     "extract_historical_footprint_candidates",
+    "extract_card_attachment_candidates",
 ]

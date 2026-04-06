@@ -18,6 +18,7 @@ from .nodes import (
     node_retrieve_analogs,
     node_collect_vs_evidence,
     node_retrieve_kg,
+    node_retrieve_themes,
     node_map_capabilities,
     node_extract_card_candidates,
     node_collect_raw_evidence,
@@ -58,6 +59,7 @@ def build_prediction_graph():
     graph.add_node("retrieve_analogs", node_retrieve_analogs)
     graph.add_node("collect_vs_evidence", node_collect_vs_evidence)
     graph.add_node("retrieve_kg", node_retrieve_kg)
+    graph.add_node("retrieve_themes", node_retrieve_themes)
     graph.add_node("map_capabilities", node_map_capabilities)
     graph.add_node("extract_card_candidates", node_extract_card_candidates)
     graph.add_node("collect_raw_evidence", node_collect_raw_evidence)
@@ -94,7 +96,8 @@ def build_prediction_graph():
     graph.add_edge("collect_vs_evidence", "retrieve_kg")
 
     # Sequential pipeline after KG
-    graph.add_edge("retrieve_kg", "map_capabilities")
+    graph.add_edge("retrieve_kg", "retrieve_themes")
+    graph.add_edge("retrieve_themes", "map_capabilities")
     graph.add_edge("map_capabilities", "extract_card_candidates")
     graph.add_edge("extract_card_candidates", "collect_raw_evidence")
     graph.add_edge("collect_raw_evidence", "build_evidence")
@@ -129,6 +132,7 @@ def run_prediction_graph(
     max_raw_evidence_tickets: int = 3,
     min_candidate_floor: int = 8,
     llm=None,
+    theme_svc=None,
 ) -> Dict[str, Any]:
     """
     Run the V5 prediction pipeline via LangGraph.
@@ -156,6 +160,7 @@ def run_prediction_graph(
         "_max_raw_evidence_tickets": max_raw_evidence_tickets,  # type: ignore[typeddict-unknown-key]
         "_min_candidate_floor": min_candidate_floor,  # type: ignore[typeddict-unknown-key]
         "_llm": llm,  # type: ignore[typeddict-unknown-key]
+        "_theme_svc": theme_svc,  # type: ignore[typeddict-unknown-key]
     }
 
     try:
@@ -206,6 +211,7 @@ def _run_sequential(state: PredictionState) -> PredictionState:
         state = _merge(state, node_collect_vs_evidence(state))
 
     state = _merge(state, node_retrieve_kg(state))
+    state = _merge(state, node_retrieve_themes(state))
     state = _merge(state, node_map_capabilities(state))
     state = _merge(state, node_extract_card_candidates(state))
     state = _merge(state, node_collect_raw_evidence(state))
