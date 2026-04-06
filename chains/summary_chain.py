@@ -22,7 +22,6 @@ from summary_rag.ingestion.adapters import (
     LLMService,
     get_default_llm,
     structured_generate,
-    safe_json_extract,
 )
 from summary_rag.ingestion.function_normalizer import normalize_functions
 from summary_rag.models.summary_doc import SummaryDoc

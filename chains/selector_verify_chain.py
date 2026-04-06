@@ -24,7 +24,6 @@ from summary_rag.ingestion.adapters import (
     LLMService,
     get_default_llm,
     structured_generate,
-    safe_json_extract,
 )
 from summary_rag.models.candidate_judgment import (
     CandidateJudgment,
