@@ -1,5 +1,5 @@
 """
-LangGraph node functions for the V5 prediction pipeline.
+LangGraph node functions for the V6 prediction pipeline.
 
 Each node takes a PredictionState dict, performs its step, and returns
 a partial state dict with updated keys. LangGraph merges the returned
@@ -20,6 +20,12 @@ Node order (V6 — 14 nodes):
   → verify_candidates        (Pass 1)
   → finalize_selection       (Pass 2)
   → finalize_output
+
+Service resolution:
+  Nodes pull services from state using _get_services(state). This checks:
+    1. _services key (ServiceContainer instance) — preferred, used by tests
+    2. Individual _llm, _theme_svc keys — backward-compatible injection
+    3. Default factories (get_default_llm, etc.) — production fallback
 """
 
 from __future__ import annotations
@@ -82,11 +88,51 @@ from rag_summary.generation.candidate_evidence import SOURCE_THEME
 
 logger = logging.getLogger(__name__)
 
-# Theme source is wired as a first-class graph node (node_retrieve_themes).
-# By default it uses _NoopThemeService (returns []) so the theme slot stays at 0.
-# To activate: pass a ThemeRetrievalService implementation via the _theme_svc
-# key in initial state or through run_prediction_graph(theme_svc=...).
-_THEME_DEFAULT_INACTIVE = True  # True = no real theme service configured yet
+
+# ---------------------------------------------------------------------------
+# Service resolution helper
+# ---------------------------------------------------------------------------
+
+def _get_services(state: PredictionState) -> Dict[str, Any]:
+    """
+    Extract service instances from state, preferring _services container.
+
+    Resolution order per service:
+      1. _services container field (if present)
+      2. Individual state key (_llm, _theme_svc, etc.)
+      3. Default factory (get_default_llm, etc.)
+
+    Returns a dict with keys: llm, theme_svc, index_dir, ticket_chunks_dir,
+    intake_date, top_kg_candidates, include_raw_evidence, max_raw_evidence_tickets,
+    min_candidate_floor.
+    """
+    container = state.get("_services")  # type: ignore[call-overload]
+
+    if container is not None:
+        # ServiceContainer provides typed service fields
+        llm = container.llm or state.get("_llm") or get_default_llm()  # type: ignore[call-overload]
+        theme_svc = container.theme or state.get("_theme_svc")  # type: ignore[call-overload]
+        index_dir = container.index_dir or state.get("_index_dir", DEFAULT_INDEX_DIR)  # type: ignore[call-overload]
+        ticket_chunks_dir = container.ticket_chunks_dir or state.get("_ticket_chunks_dir", "ticket_chunks")  # type: ignore[call-overload]
+        intake_date = container.intake_date or state.get("_intake_date")  # type: ignore[call-overload]
+    else:
+        llm = state.get("_llm") or get_default_llm()  # type: ignore[call-overload]
+        theme_svc = state.get("_theme_svc")  # type: ignore[call-overload]
+        index_dir = state.get("_index_dir", DEFAULT_INDEX_DIR)  # type: ignore[call-overload]
+        ticket_chunks_dir = state.get("_ticket_chunks_dir", "ticket_chunks")  # type: ignore[call-overload]
+        intake_date = state.get("_intake_date")  # type: ignore[call-overload]
+
+    return {
+        "llm": llm,
+        "theme_svc": theme_svc,
+        "index_dir": index_dir,
+        "ticket_chunks_dir": ticket_chunks_dir,
+        "intake_date": intake_date,
+        "top_kg_candidates": state.get("_top_kg_candidates", 20),  # type: ignore[call-overload]
+        "include_raw_evidence": state.get("_include_raw_evidence", True),  # type: ignore[call-overload]
+        "max_raw_evidence_tickets": state.get("_max_raw_evidence_tickets", 3),  # type: ignore[call-overload]
+        "min_candidate_floor": state.get("_min_candidate_floor", 8),  # type: ignore[call-overload]
+    }
 
 _VSR_SUFFIX_RE = re.compile(r"\s*(\s*VSR[0-9A-Z-]*\s*)\s*$", re.IGNORECASE)
 _EMPTY_PARENS_SUFFIX_RE = re.compile(r"\s*\(\s*\)\s*$")
@@ -245,14 +291,8 @@ def node_clean_and_summarize(state: PredictionState) -> Dict[str, Any]:
         errors.append("empty_input_text")
         return {"cleaned_text": cleaned_text, "errors": errors}
 
-    if _THEME_DEFAULT_INACTIVE and not state.get("_theme_svc"):  # type: ignore[call-overload]
-        logger.debug(
-            "[node_clean_and_summarize] Theme source uses noop default — "
-            "pass _theme_svc to activate (see ThemeRetrievalService in adapters.py)"
-        )
-
-    llm: Optional[LLMService] = state.get("_llm")  # type: ignore[assignment]
-    chain = SummaryChain(llm=llm)
+    svc = _get_services(state)
+    chain = SummaryChain(llm=svc["llm"])
 
     try:
         summary_doc: SummaryDoc = chain.run_card(card_text=cleaned_text)
@@ -279,15 +319,15 @@ def node_clean_and_summarize(state: PredictionState) -> Dict[str, Any]:
 def node_retrieve_analogs(state: PredictionState) -> Dict[str, Any]:
     """Step 2: Search FAISS for top analog historical tickets."""
     t = time.time()
+    svc = _get_services(state)
     new_card_summary = state.get("new_card_summary", {})
-    index_dir = state.get("_index_dir", DEFAULT_INDEX_DIR)  # type: ignore[call-overload]
     top_k = state.get("top_k_analogs", 5)
 
     analog_tickets: List[Dict[str, Any]] = []
     try:
         analog_tickets = retrieve_analog_tickets(
             new_card_summary,
-            index_dir=index_dir,
+            index_dir=svc["index_dir"],
             top_k=top_k,
         )
     except Exception as exc:
@@ -308,13 +348,13 @@ def node_collect_vs_evidence(state: PredictionState) -> Dict[str, Any]:
     Downstream chains: VS entries consistently activated downstream of direct ones.
     """
     t = time.time()
+    svc = _get_services(state)
     analog_tickets = state.get("analog_tickets", [])
-    ticket_chunks_dir = state.get("_ticket_chunks_dir", "ticket_chunks")  # type: ignore[call-overload]
     allowed_names = state.get("allowed_value_stream_names")
 
     vs_support = collect_value_stream_evidence(
         analog_tickets,
-        ticket_chunks_dir=ticket_chunks_dir,
+        ticket_chunks_dir=svc["ticket_chunks_dir"],
     )
 
     # V6: detect historical footprint patterns
@@ -341,10 +381,11 @@ def node_collect_vs_evidence(state: PredictionState) -> Dict[str, Any]:
 def node_retrieve_kg(state: PredictionState) -> Dict[str, Any]:
     """Step 4: Retrieve KG candidate value streams."""
     t = time.time()
+    svc = _get_services(state)
     new_card_summary = state.get("new_card_summary", {})
     cleaned_text = state.get("cleaned_text", "")
     allowed_names = state.get("allowed_value_stream_names")
-    top_k = state.get("_top_kg_candidates", 20)  # type: ignore[call-overload]
+    top_k = svc["top_kg_candidates"]
 
     from rag_summary.ingestion import build_retrieval_text
     kg_query_text = build_retrieval_text(new_card_summary).strip() or cleaned_text
@@ -378,13 +419,13 @@ def node_retrieve_themes(state: PredictionState) -> Dict[str, Any]:
     CandidateEvidence, adding a seventh independent evidence dimension.
     """
     t = time.time()
+    svc = _get_services(state)
     new_card_summary = state.get("new_card_summary", {})
     cleaned_text = state.get("cleaned_text", "")
     allowed_names = state.get("allowed_value_stream_names")
-    # V6: intake_date cutoff prevents leaking future themes of this card
-    intake_date = state.get("_intake_date")  # type: ignore[call-overload]
+    intake_date = svc["intake_date"]
 
-    theme_svc = state.get("_theme_svc")  # type: ignore[call-overload]
+    theme_svc = svc["theme_svc"]
     if theme_svc is None:
         # Auto-discover: load FaissThemeRetrievalService if theme index files exist
         import pathlib as _pathlib
@@ -543,20 +584,19 @@ def node_extract_card_candidates(state: PredictionState) -> Dict[str, Any]:
 
 def node_collect_raw_evidence(state: PredictionState) -> Dict[str, Any]:
     """Step 6: Collect raw evidence chunks (must run before build_evidence)."""
-    include_raw = state.get("_include_raw_evidence", True)  # type: ignore[call-overload]
+    svc = _get_services(state)
     analog_tickets = state.get("analog_tickets", [])
-    if not include_raw or not analog_tickets:
+    if not svc["include_raw_evidence"] or not analog_tickets:
         return {"raw_evidence": [], "attachment_candidates": []}
 
     t = time.time()
     new_card_summary = state.get("new_card_summary", {})
     cleaned_text = state.get("cleaned_text", "")
-    ticket_chunks_dir = state.get("_ticket_chunks_dir", "ticket_chunks")  # type: ignore[call-overload]
-    max_tickets = state.get("_max_raw_evidence_tickets", 3)  # type: ignore[call-overload]
 
     from rag_summary.ingestion import build_retrieval_text
     kg_query = build_retrieval_text(new_card_summary).strip() or cleaned_text
 
+    max_tickets = svc["max_raw_evidence_tickets"]
     top_ticket_ids = [
         t_["ticket_id"] for t_ in analog_tickets[:max_tickets]
         if t_.get("ticket_id")
@@ -565,7 +605,7 @@ def node_collect_raw_evidence(state: PredictionState) -> Dict[str, Any]:
     try:
         raw_evidence = retrieve_raw_evidence_for_tickets(
             top_ticket_ids,
-            ticket_chunks_dir=ticket_chunks_dir,
+            ticket_chunks_dir=svc["ticket_chunks_dir"],
             query_text=kg_query,
         )
     except Exception as exc:
@@ -793,8 +833,9 @@ def node_build_evidence(state: PredictionState) -> Dict[str, Any]:
 def node_fuse_scores(state: PredictionState) -> Dict[str, Any]:
     """Step 8: Source-aware fused ranking + candidate floor + profile selection."""
     t = time.time()
+    svc = _get_services(state)
     candidate_evidence = list(state.get("candidate_evidence", []))
-    min_floor = state.get("_min_candidate_floor", 8)  # type: ignore[call-overload]
+    min_floor = svc["min_candidate_floor"]
 
     # Build profile hints from runtime state
     profile_hints = {
@@ -824,7 +865,7 @@ def node_verify_candidates(state: PredictionState) -> Dict[str, Any]:
     fused_candidates = state.get("fused_candidates", [])
     raw_evidence = state.get("raw_evidence", [])
     allowed_names = state.get("allowed_value_stream_names")
-    llm: Optional[LLMService] = state.get("_llm")  # type: ignore[assignment]
+    svc = _get_services(state)
 
     candidates = fused_candidates
     if allowed_names:
@@ -834,7 +875,7 @@ def node_verify_candidates(state: PredictionState) -> Dict[str, Any]:
             if _norm_text(c.get("candidate_name") or c.get("entity_name", "")) in allowed_set
         ]
 
-    chain = SelectorVerifyChain(llm=llm)  # defaults to v3 prompt
+    chain = SelectorVerifyChain(llm=svc["llm"])  # defaults to v3 prompt
     verification_result: VerificationResult = chain.run(
         new_card_summary=new_card_summary,
         analog_tickets=analog_tickets,
@@ -854,7 +895,7 @@ def node_finalize_selection(state: PredictionState) -> Dict[str, Any]:
     new_card_summary = state.get("new_card_summary", {})
     judgment_dicts = state.get("verify_judgments", [])
     fused_candidates = state.get("fused_candidates", [])
-    llm: Optional[LLMService] = state.get("_llm")  # type: ignore[assignment]
+    svc = _get_services(state)
 
     judgments = [
         CandidateJudgment(**j) if isinstance(j, dict) else j
@@ -862,7 +903,7 @@ def node_finalize_selection(state: PredictionState) -> Dict[str, Any]:
     ]
     verification_result = VerificationResult(judgments=judgments)
 
-    chain = SelectorFinalizeChain(llm=llm)  # defaults to v3 prompt
+    chain = SelectorFinalizeChain(llm=svc["llm"])  # defaults to v3 prompt
     selection_result: SelectionResult = chain.run(
         new_card_summary=new_card_summary,
         verification_result=verification_result,

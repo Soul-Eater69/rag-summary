@@ -56,6 +56,7 @@ def run_summary_rag_pipeline(
     llm=None,
     theme_svc=None,
     intake_date: Optional[str] = None,
+    services=None,
 ) -> Dict[str, Any]:
     """
     Run the V6 summary-first RAG pipeline.
@@ -90,6 +91,7 @@ def run_summary_rag_pipeline(
         llm=llm,
         theme_svc=theme_svc,
         intake_date=intake_date,
+        services=services,
     )
 
     if debug_output_dir:
