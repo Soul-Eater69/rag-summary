@@ -190,6 +190,8 @@ def extract_attachment_native_candidates(
 
             ceiling = _SECTION_TYPE_CEILINGS.get(section_type, _DEFAULT_CEILING)
 
+            boost, boost_reason = _content_score_boost(section_type, content)
+
             for cluster_name, cluster in capability_map.items():
                 direct_hits = [c for c in cluster["direct_cues"] if c in content]
                 indirect_hits = [c for c in cluster["indirect_cues"] if c in content]
@@ -202,10 +204,7 @@ def extract_attachment_native_candidates(
                 score *= cluster.get("weight", 1.0)
                 score = round(min(ceiling, score), 3)
 
-                # Content-signal boost (section-type-aware, runs once per section)
-            boost, boost_reason = _content_score_boost(section_type, content)
-
-            for vs_name in cluster["promote_value_streams"]:
+                for vs_name in cluster["promote_value_streams"]:
                     if allowed_names is not None and vs_name not in allowed_names:
                         continue
                     # Keep highest score per (vs_name, attachment_id, section_id) triple
