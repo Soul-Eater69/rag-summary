@@ -22,6 +22,7 @@ from .nodes import (
     node_map_capabilities,
     node_extract_card_candidates,
     node_collect_raw_evidence,
+    node_parse_attachments,
     node_build_evidence,
     node_fuse_scores,
     node_verify_candidates,
@@ -63,6 +64,7 @@ def build_prediction_graph():
     graph.add_node("map_capabilities", node_map_capabilities)
     graph.add_node("extract_card_candidates", node_extract_card_candidates)
     graph.add_node("collect_raw_evidence", node_collect_raw_evidence)
+    graph.add_node("parse_attachments", node_parse_attachments)
     graph.add_node("build_evidence", node_build_evidence)
     graph.add_node("fuse_scores", node_fuse_scores)
     graph.add_node("verify_candidates", node_verify_candidates)
@@ -100,7 +102,8 @@ def build_prediction_graph():
     graph.add_edge("retrieve_themes", "map_capabilities")
     graph.add_edge("map_capabilities", "extract_card_candidates")
     graph.add_edge("extract_card_candidates", "collect_raw_evidence")
-    graph.add_edge("collect_raw_evidence", "build_evidence")
+    graph.add_edge("collect_raw_evidence", "parse_attachments")
+    graph.add_edge("parse_attachments", "build_evidence")
     graph.add_edge("build_evidence", "fuse_scores")
     graph.add_edge("fuse_scores", "verify_candidates")
 
@@ -136,12 +139,17 @@ def run_prediction_graph(
     intake_date: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Run the V5 prediction pipeline via LangGraph.
+    Run the V6 prediction pipeline via LangGraph.
 
-    This is the primary entry point for graph-based execution. Pipeline config
-    is injected into state as private underscore keys that nodes read from.
+    14-node graph:
+      clean_and_summarize → retrieve_analogs → collect_vs_evidence
+      → retrieve_kg → retrieve_themes → map_capabilities
+      → extract_card_candidates → collect_raw_evidence
+      → parse_attachments → build_evidence → fuse_scores
+      → verify_candidates → finalize_selection → finalize_output
 
-    Returns the final PredictionState dict with all pipeline artifacts.
+    Pipeline config is injected into state as private underscore keys that
+    nodes read from. Returns the final PredictionState dict with all artifacts.
     """
     t_start = time.time()
 
@@ -217,6 +225,7 @@ def _run_sequential(state: PredictionState) -> PredictionState:
     state = _merge(state, node_map_capabilities(state))
     state = _merge(state, node_extract_card_candidates(state))
     state = _merge(state, node_collect_raw_evidence(state))
+    state = _merge(state, node_parse_attachments(state))
     state = _merge(state, node_build_evidence(state))
     state = _merge(state, node_fuse_scores(state))
     state = _merge(state, node_verify_candidates(state))

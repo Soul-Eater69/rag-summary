@@ -5,18 +5,20 @@ Each node takes a PredictionState dict, performs its step, and returns
 a partial state dict with updated keys. LangGraph merges the returned
 dict into the running state.
 
-Node order:
+Node order (V6 — 14 nodes):
   clean_and_summarize
   → retrieve_analogs
-  → collect_vs_evidence
+  → collect_vs_evidence      (+ bundle_patterns, downstream_chains)
   → retrieve_kg
+  → retrieve_themes          (auto-discovers FAISS index if present)
   → map_capabilities
   → extract_card_candidates
   → collect_raw_evidence
-  → build_evidence
+  → parse_attachments        (V6: section-level parsing → attachment_native_candidates)
+  → build_evidence           (merges all 7 sources)
   → fuse_scores
-  → verify_candidates  (Pass 1)
-  → finalize_selection (Pass 2)
+  → verify_candidates        (Pass 1)
+  → finalize_selection       (Pass 2)
   → finalize_output
 """
 
@@ -67,6 +69,8 @@ from rag_summary.generation.card_candidates import (
 )
 from rag_summary.retrieval import enrich_historical_candidates
 from rag_summary.ingestion.adapters import get_default_theme, ThemeRetrievalService
+from rag_summary.ingestion.attachment_parser import AttachmentParser
+from rag_summary.generation.attachment_candidates import extract_attachment_native_candidates
 from rag_summary.chains.summary_chain import SummaryChain
 from rag_summary.chains.selector_verify_chain import SelectorVerifyChain
 from rag_summary.chains.selector_finalize_chain import SelectorFinalizeChain
@@ -356,9 +360,34 @@ def node_retrieve_themes(state: PredictionState) -> Dict[str, Any]:
     new_card_summary = state.get("new_card_summary", {})
     cleaned_text = state.get("cleaned_text", "")
     allowed_names = state.get("allowed_value_stream_names")
-    theme_svc = state.get("_theme_svc") or get_default_theme()  # type: ignore[call-overload]
     # V6: intake_date cutoff prevents leaking future themes of this card
     intake_date = state.get("_intake_date")  # type: ignore[call-overload]
+
+    theme_svc = state.get("_theme_svc")  # type: ignore[call-overload]
+    if theme_svc is None:
+        # Auto-discover: load FaissThemeRetrievalService if theme index files exist
+        import pathlib as _pathlib
+        _default_theme_dir = str(
+            _pathlib.Path(__file__).resolve().parent.parent / "config" / "theme_index"
+        )
+        _theme_index_file = _pathlib.Path(_default_theme_dir) / "theme_index.faiss"
+        if _theme_index_file.exists():
+            try:
+                from rag_summary.ingestion.theme_retrieval_service import FaissThemeRetrievalService
+                from rag_summary.ingestion.adapters import get_default_embedding
+                theme_svc = FaissThemeRetrievalService(
+                    theme_index_dir=_default_theme_dir,
+                    embedding_svc=get_default_embedding(),
+                )
+                logger.info(
+                    "[node_retrieve_themes] Auto-loaded FaissThemeRetrievalService from %s",
+                    _default_theme_dir,
+                )
+            except Exception as _exc:
+                logger.warning("[node_retrieve_themes] Auto-load failed: %s", _exc)
+                theme_svc = None
+    if theme_svc is None:
+        theme_svc = get_default_theme()
 
     from rag_summary.ingestion import build_retrieval_text
     query = build_retrieval_text(new_card_summary).strip() or cleaned_text
@@ -496,6 +525,62 @@ def node_collect_raw_evidence(state: PredictionState) -> Dict[str, Any]:
     return {"raw_evidence": raw_evidence, "attachment_candidates": attachment_candidates}
 
 
+def node_parse_attachments(state: PredictionState) -> Dict[str, Any]:
+    """
+    Step 6b (V6): Parse attachment content into structured sections.
+
+    Two input modes:
+    1. Explicit attachment files: reads _attachment_contents from state —
+       a list of {"filename": str, "text": str} dicts pre-extracted by the caller.
+    2. Card text fallback: scans cleaned_text for exhibit/appendix/table/scope
+       structural markers; produces sections from the card body itself.
+
+    Outputs:
+      attachment_docs: List[ParsedAttachment.to_dict()] — section-level parsed docs
+      attachment_native_candidates: List[candidate dicts] with sub_source="attachment_native"
+    """
+    t = time.time()
+    cleaned_text = state.get("cleaned_text", "")
+    allowed_names = state.get("allowed_value_stream_names")
+    attachment_contents = state.get("_attachment_contents") or []  # type: ignore[call-overload]
+
+    parser = AttachmentParser()
+    parsed_docs = []
+
+    # Mode 1: explicit attachment files provided by caller
+    for attach in attachment_contents:
+        filename = attach.get("filename", "attachment")
+        text = attach.get("text", "")
+        if not text.strip():
+            continue
+        doc = parser.parse_attachment_content(filename, text)
+        parsed_docs.append(doc)
+
+    # Mode 2: fallback — extract structural sections from the card text itself
+    if not parsed_docs and cleaned_text.strip():
+        card_doc = parser.parse_card_text(cleaned_text)
+        if card_doc:
+            parsed_docs.append(card_doc)
+
+    attachment_docs = [doc.to_dict() for doc in parsed_docs]
+
+    allowed_set = set(allowed_names) if allowed_names else None
+    attachment_native_candidates = extract_attachment_native_candidates(
+        attachment_docs,
+        allowed_names=allowed_set,
+    )
+
+    section_count = sum(len(d.get("sections", [])) for d in attachment_docs)
+    logger.info(
+        "[node_parse_attachments] done in %.2fs | %d docs | %d sections | %d native candidates",
+        time.time() - t, len(parsed_docs), section_count, len(attachment_native_candidates),
+    )
+    return {
+        "attachment_docs": attachment_docs,
+        "attachment_native_candidates": attachment_native_candidates,
+    }
+
+
 def node_build_evidence(state: PredictionState) -> Dict[str, Any]:
     """
     Step 7: Build CandidateEvidence objects from all 7 sources.
@@ -517,10 +602,15 @@ def node_build_evidence(state: PredictionState) -> Dict[str, Any]:
     kg_candidates = state.get("kg_candidates", [])
     capability_mapping = state.get("capability_mapping", {})
     chunk_candidates = state.get("chunk_candidates", [])
-    # Merge card-native + analog-proxy attachment candidates
+    # Merge all attachment candidates: native (parsed sections) > heuristic (card text) > proxy (analog)
+    native_attach = state.get("attachment_native_candidates", [])
     card_attach = state.get("card_attachment_candidates", [])
     analog_attach = state.get("attachment_candidates", [])
-    all_attachment = card_attach + [a for a in analog_attach if a.get("entity_name")]
+    all_attachment = (
+        native_attach
+        + card_attach
+        + [a for a in analog_attach if a.get("entity_name")]
+    )
     footprint_candidates = state.get("historical_footprint_candidates", [])
     summary_candidates = state.get("summary_candidates", [])
     theme_candidates = state.get("theme_candidates", [])
@@ -579,13 +669,12 @@ def node_build_evidence(state: PredictionState) -> Dict[str, Any]:
     _inject_footprint_patterns(candidate_evidence, bundle_patterns, downstream_chains)
 
     active_theme = len(theme_candidates) > 0
-    active_attach = len(all_attachment) > 0
     logger.info(
         "[node_build_evidence] done in %.2fs | %d candidates | "
-        "theme_active=%s | card_attach=%d | analog_attach=%d | "
+        "theme_active=%s | native_attach=%d | card_attach=%d | analog_attach=%d | "
         "bundles=%d | downstream=%d",
         time.time() - t, len(candidate_evidence),
-        active_theme, len(card_attach), len(analog_attach),
+        active_theme, len(native_attach), len(card_attach), len(analog_attach),
         len(bundle_patterns), len(downstream_chains),
     )
     if not active_theme:
