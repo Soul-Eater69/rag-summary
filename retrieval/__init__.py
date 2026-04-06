@@ -6,6 +6,11 @@ from .summary_retriever import (
     collect_attachment_candidates,
     enrich_historical_candidates,
 )
+from .history_patterns import (
+    detect_bundle_patterns,
+    detect_downstream_chains,
+    compute_capability_overlap,
+)
 
 __all__ = [
     "retrieve_analog_tickets",
@@ -14,4 +19,7 @@ __all__ = [
     "collect_value_stream_evidence",
     "collect_attachment_candidates",
     "enrich_historical_candidates",
+    "detect_bundle_patterns",
+    "detect_downstream_chains",
+    "compute_capability_overlap",
 ]

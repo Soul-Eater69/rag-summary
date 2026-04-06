@@ -24,3 +24,16 @@ diversity_bonus:
 
 penalties:
   no_evidence: -0.10   # Penalty for candidates with zero active sources
+
+theme_promotion:
+  min_score: 0.50      # Minimum theme score to trigger bonus
+  bonus: 0.04          # Flat bonus added to fused score when theme score >= min_score
+
+quality_multipliers:
+  # Applied to the attachment source score based on sub_source type
+  # attachment_native: explicitly parsed attachment content → full weight
+  # attachment_proxy:  analog-derived proxy signal → moderate attenuation
+  # attachment_heuristic: structural card-text pattern → lowest weight
+  attachment_native: 1.00
+  attachment_proxy: 0.75
+  attachment_heuristic: 0.55

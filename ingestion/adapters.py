@@ -133,6 +133,43 @@ class ThemeRetrievalService(Protocol):
         ...
 
 
+@runtime_checkable
+class SummaryIndexService(Protocol):
+    """
+    Protocol for searching the FAISS summary index for analog tickets.
+
+    Abstracts FaissIndexer so nodes can be tested without the real index.
+    """
+
+    def search(
+        self,
+        query_text: str,
+        *,
+        top_k: int = 5,
+        allowed_vs_names: Optional[List[str]] = None,
+    ) -> List[dict]:
+        ...
+
+
+@runtime_checkable
+class RawEvidenceService(Protocol):
+    """
+    Protocol for fetching raw evidence chunks for a specific ticket.
+
+    Abstracts the filesystem ticket_chunks/ lookup so nodes can be tested
+    without the actual chunk files on disk.
+    """
+
+    def get_chunks_for_ticket(
+        self,
+        ticket_id: str,
+        *,
+        query_text: Optional[str] = None,
+        top_k: int = 5,
+    ) -> List[dict]:
+        ...
+
+
 # ---------------------------------------------------------------------------
 # Default factory functions (lazy import from src.*)
 # ---------------------------------------------------------------------------

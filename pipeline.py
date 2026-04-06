@@ -47,6 +47,7 @@ def run_summary_rag_pipeline(
     trace_mode: bool = False,
     llm=None,
     theme_svc=None,
+    intake_date: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Run the V5 summary-first RAG pipeline.
@@ -80,6 +81,7 @@ def run_summary_rag_pipeline(
         min_candidate_floor=min_candidate_floor,
         llm=llm,
         theme_svc=theme_svc,
+        intake_date=intake_date,
     )
 
     if debug_output_dir:
@@ -139,6 +141,10 @@ def _persist_debug_artifacts(output_dir: str, result: Dict[str, Any]) -> None:
             "fused_candidates.json": result.get("fused_candidates", []),
             "raw_evidence.json": result.get("raw_evidence", []),
             "selection_result.json": result.get("selection_result", {}),
+            # V6: historical footprint pattern artifacts
+            "bundle_patterns.json": result.get("bundle_patterns", []),
+            "downstream_chains.json": result.get("downstream_chains", []),
+            "theme_candidates.json": result.get("theme_candidates", []),
             "eval_log.json": {
                 "directly_supported": [vs.get("entity_name") for vs in result.get("directly_supported", [])],
                 "pattern_inferred": [vs.get("entity_name") for vs in result.get("pattern_inferred", [])],

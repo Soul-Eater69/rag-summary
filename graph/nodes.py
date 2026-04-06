@@ -48,6 +48,8 @@ from summary_rag.retrieval import (
     retrieve_kg_candidates,
     collect_value_stream_evidence,
     collect_attachment_candidates,
+    detect_bundle_patterns,
+    detect_downstream_chains,
 )
 from summary_rag.generation.capability_mapper import map_capabilities_to_candidates
 from summary_rag.generation.candidate_evidence import (
@@ -144,6 +146,64 @@ def _inject_summary_candidates(
         entry["support_type"] = _classify_support_type(entry)
 
 
+def _inject_footprint_patterns(
+    candidate_evidence: List[Dict[str, Any]],
+    bundle_patterns: List[Dict[str, Any]],
+    downstream_chains: List[Dict[str, Any]],
+) -> None:
+    """
+    V6: Inject bundle pattern and downstream chain evidence snippets into existing
+    CandidateEvidence objects. Increments diagnostic counters.
+
+    Bundle patterns: for each (primary_vs, bundled_vs) pair, if the bundled_vs
+    is an existing candidate, add a sub_source=bundle_pattern snippet to it.
+
+    Downstream chains: for each (upstream_vs, downstream_vs) pair, if the
+    downstream_vs is an existing candidate, add a sub_source=downstream_chain snippet.
+    """
+    from summary_rag.generation.candidate_evidence import SOURCE_HISTORICAL
+    by_name = {_norm_text(c.get("candidate_name", "")): c for c in candidate_evidence}
+
+    for bp in bundle_patterns:
+        bundled = (bp.get("bundled_vs") or "").strip()
+        primary = (bp.get("primary_vs") or "").strip()
+        key = _norm_text(bundled)
+        entry = by_name.get(key)
+        if not entry:
+            continue
+        fraction = bp.get("co_occurrence_fraction", 0.0)
+        count = bp.get("co_occurrence_count", 0)
+        entry.setdefault("evidence_snippets", []).append({
+            "source": SOURCE_HISTORICAL,
+            "snippet": (
+                f"Bundle co-occurrence: appears with '{primary}' in "
+                f"{fraction:.0%} of similar analogs ({count} tickets)"
+            ),
+            "score": round(0.20 * fraction, 4),
+            "sub_source": "bundle_pattern",
+        })
+        entry["bundle_pattern_count"] = entry.get("bundle_pattern_count", 0) + 1
+
+    for dc in downstream_chains:
+        down_vs = (dc.get("downstream_vs") or "").strip()
+        up_vs = (dc.get("upstream_vs") or "").strip()
+        key = _norm_text(down_vs)
+        entry = by_name.get(key)
+        if not entry:
+            continue
+        analog_count = dc.get("analog_count", 0)
+        entry.setdefault("evidence_snippets", []).append({
+            "source": SOURCE_HISTORICAL,
+            "snippet": (
+                f"Downstream activation: '{up_vs}' typically leads to this "
+                f"stream in {analog_count} analog(s)"
+            ),
+            "score": 0.18,
+            "sub_source": "downstream_chain",
+        })
+        entry["downstream_chain_count"] = entry.get("downstream_chain_count", 0) + 1
+
+
 # ---------------------------------------------------------------------------
 # Node functions
 # ---------------------------------------------------------------------------
@@ -216,17 +276,41 @@ def node_retrieve_analogs(state: PredictionState) -> Dict[str, Any]:
 
 
 def node_collect_vs_evidence(state: PredictionState) -> Dict[str, Any]:
-    """Step 3: Collect VS evidence from analog tickets."""
+    """Step 3: Collect VS evidence from analog tickets.
+
+    V6: Also detects bundle patterns and downstream chains across the analog set.
+    Bundle patterns: VS pairs that co-occur in ≥60% of analogs.
+    Downstream chains: VS entries consistently activated downstream of direct ones.
+    """
     t = time.time()
     analog_tickets = state.get("analog_tickets", [])
     ticket_chunks_dir = state.get("_ticket_chunks_dir", "ticket_chunks")  # type: ignore[call-overload]
+    allowed_names = state.get("allowed_value_stream_names")
 
     vs_support = collect_value_stream_evidence(
         analog_tickets,
         ticket_chunks_dir=ticket_chunks_dir,
     )
-    logger.info("[node_collect_vs_evidence] done in %.2fs | %d VS entries", time.time() - t, len(vs_support))
-    return {"historical_value_stream_support": vs_support}
+
+    # V6: detect historical footprint patterns
+    bundle_patterns = detect_bundle_patterns(
+        analog_tickets,
+        min_co_occurrence_fraction=0.60,
+        min_analog_count=2,
+        allowed_names=list(allowed_names) if allowed_names else None,
+    )
+    downstream_chains = detect_downstream_chains(vs_support)
+
+    logger.info(
+        "[node_collect_vs_evidence] done in %.2fs | %d VS entries | "
+        "%d bundle patterns | %d downstream chains",
+        time.time() - t, len(vs_support), len(bundle_patterns), len(downstream_chains),
+    )
+    return {
+        "historical_value_stream_support": vs_support,
+        "bundle_patterns": bundle_patterns,
+        "downstream_chains": downstream_chains,
+    }
 
 
 def node_retrieve_kg(state: PredictionState) -> Dict[str, Any]:
@@ -273,17 +357,23 @@ def node_retrieve_themes(state: PredictionState) -> Dict[str, Any]:
     cleaned_text = state.get("cleaned_text", "")
     allowed_names = state.get("allowed_value_stream_names")
     theme_svc = state.get("_theme_svc") or get_default_theme()  # type: ignore[call-overload]
+    # V6: intake_date cutoff prevents leaking future themes of this card
+    intake_date = state.get("_intake_date")  # type: ignore[call-overload]
 
     from summary_rag.ingestion import build_retrieval_text
     query = build_retrieval_text(new_card_summary).strip() or cleaned_text
 
     theme_candidates: List[Dict[str, Any]] = []
     try:
-        raw = theme_svc.retrieve_theme_candidates(  # type: ignore[union-attr]
-            query,
-            top_k=10,
-            allowed_names=list(allowed_names) if allowed_names else None,
-        )
+        import inspect as _inspect
+        _sig = _inspect.signature(theme_svc.retrieve_theme_candidates)  # type: ignore[union-attr]
+        _kwargs: Dict[str, Any] = {
+            "top_k": 10,
+            "allowed_names": list(allowed_names) if allowed_names else None,
+        }
+        if "cutoff_date" in _sig.parameters and intake_date:
+            _kwargs["cutoff_date"] = intake_date
+        raw = theme_svc.retrieve_theme_candidates(query, **_kwargs)  # type: ignore[union-attr]
         theme_candidates = raw or []
     except Exception as exc:
         logger.warning("[node_retrieve_themes] Failed: %s", exc)
@@ -435,19 +525,28 @@ def node_build_evidence(state: PredictionState) -> Dict[str, Any]:
     summary_candidates = state.get("summary_candidates", [])
     theme_candidates = state.get("theme_candidates", [])
 
-    # Enrich vs_support with support-type-weighted scores and evidence phrases
-    enriched_vs_support = enrich_historical_candidates(vs_support)
+    # V6: pass new card summary + analog dicts for capability overlap scoring
+    new_card_summary = state.get("new_card_summary", {})
+    analog_tickets = state.get("analog_tickets", [])
+
+    enriched_vs_support = enrich_historical_candidates(
+        vs_support,
+        new_card_summary=new_card_summary,
+        analog_summaries=analog_tickets,   # plain dicts; enrich_historical handles them
+    )
     historical_candidates = [
         {
             "entity_name": s.get("entity_name", ""),
-            "score": float(s.get("score") or 0.0),  # calibrated score from enrichment
+            "score": float(s.get("score") or 0.0),
+            "sub_source": None,   # historical candidates have no attachment sub_source
             "supporting_evidence": (
-                s.get("evidence_phrases", [])   # operational footprint phrases
+                s.get("evidence_phrases", [])
                 or s.get("supporting_evidence", [])
                 or s.get("supporting_functions", [])
             ),
             "capability_tags": s.get("capability_tags", []),
             "operational_footprint": s.get("operational_footprint", []),
+            "capability_overlap_score": s.get("capability_overlap_score", 0.0),
         }
         for s in enriched_vs_support
     ]
@@ -474,13 +573,20 @@ def node_build_evidence(state: PredictionState) -> Dict[str, Any]:
     )
     _inject_summary_candidates(candidate_evidence, summary_candidates)
 
+    # V6: inject bundle pattern and downstream chain evidence snippets
+    bundle_patterns = state.get("bundle_patterns", [])
+    downstream_chains = state.get("downstream_chains", [])
+    _inject_footprint_patterns(candidate_evidence, bundle_patterns, downstream_chains)
+
     active_theme = len(theme_candidates) > 0
     active_attach = len(all_attachment) > 0
     logger.info(
         "[node_build_evidence] done in %.2fs | %d candidates | "
-        "theme_active=%s | card_attach=%d | analog_attach=%d",
+        "theme_active=%s | card_attach=%d | analog_attach=%d | "
+        "bundles=%d | downstream=%d",
         time.time() - t, len(candidate_evidence),
         active_theme, len(card_attach), len(analog_attach),
+        len(bundle_patterns), len(downstream_chains),
     )
     if not active_theme:
         logger.debug(

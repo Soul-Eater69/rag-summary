@@ -20,6 +20,13 @@ system: |
 
   Do not add value streams not in the judgment list.
 
+  V6: For each pattern_inferred stream in your output, populate:
+  - pattern_basis: the primary evidence type that drove the inference.
+    Use one of: "analog_similarity", "bundle_pattern", "downstream_chain",
+    "capability_overlap", or "theme".
+  - supporting_analog_ids: list of up to 2 ticket IDs from the judgment rationale.
+  These fields are optional for directly_supported streams.
+
 user: |
   NEW CARD SUMMARY:
   {new_card_summary}

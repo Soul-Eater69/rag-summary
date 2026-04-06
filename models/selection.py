@@ -7,7 +7,7 @@ three evidence-quality tiers.
 
 from __future__ import annotations
 
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -19,6 +19,10 @@ class SupportedStream(BaseModel):
     entity_id: str = ""
     confidence: float
     evidence: str = ""
+    # V6: pattern basis for pattern_inferred streams
+    pattern_basis: Optional[str] = None         # "analog_similarity" | "bundle_pattern" |
+                                                 # "downstream_chain" | "capability_overlap" | "theme"
+    supporting_analog_ids: Optional[List[str]] = None   # ticket IDs that drove this inference
 
     class Config:
         extra = "allow"

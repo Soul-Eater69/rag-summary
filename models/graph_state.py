@@ -43,11 +43,19 @@ class PredictionState(TypedDict, total=False):
     # --- Step 4b: Theme candidates (live if ThemeRetrievalService is wired) ---
     theme_candidates: List[Dict[str, Any]]
 
+    # --- Step 4c: Historical footprint patterns (V6) ---
+    bundle_patterns: List[Dict[str, Any]]       # VS pairs co-occurring across analogs
+    downstream_chains: List[Dict[str, Any]]     # VS downstream-activation chains
+
     # --- Step 5b: Card-level candidates ---
     summary_candidates: List[Dict[str, Any]]
     chunk_candidates: List[Dict[str, Any]]
     card_attachment_candidates: List[Dict[str, Any]]  # card-native attachment signals
     historical_footprint_candidates: List[Dict[str, Any]]
+
+    # --- Step 5c: Parsed attachment docs (V6) ---
+    attachment_docs: List[Dict[str, Any]]             # ParsedAttachment serialized dicts
+    attachment_native_candidates: List[Dict[str, Any]]  # structured section-level candidates
 
     # --- Step 6: Raw evidence (for attachment proxy from analogs) ---
     raw_evidence: List[Dict[str, Any]]
@@ -74,3 +82,9 @@ class PredictionState(TypedDict, total=False):
     errors: List[str]
     warnings: List[str]
     timing: Dict[str, float]
+
+    # --- V6: private pipeline config keys (injected by run_prediction_graph) ---
+    # All _* keys use type: ignore at injection sites since TypedDict disallows unknown keys.
+    # _intake_date: str            ISO-8601 intake date; used for theme leakage cutoff
+    # _attachment_contents: List  [{"filename": str, "content": bytes}] for real attachments
+    # _services: Any               ServiceContainer instance (Phase 5)
