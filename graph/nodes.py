@@ -65,8 +65,17 @@ from summary_rag.generation.card_candidates import (
 from summary_rag.chains.summary_chain import SummaryChain
 from summary_rag.chains.selector_verify_chain import SelectorVerifyChain
 from summary_rag.chains.selector_finalize_chain import SelectorFinalizeChain
+from summary_rag.models.summary_doc import SummaryDoc
+from summary_rag.models.candidate_judgment import CandidateJudgment, VerificationResult
+from summary_rag.models.selection import SelectionResult, SupportedStream, UnsupportedStream
+from summary_rag.generation.candidate_evidence import SOURCE_THEME
 
 logger = logging.getLogger(__name__)
+
+# Theme source is not yet wired to a live runtime retrieval path.
+# It is preserved in fusion weights for future activation, but currently
+# produces zero scores for all candidates at prediction time.
+_THEME_SOURCE_ACTIVE = False
 
 _VSR_SUFFIX_RE = re.compile(r"\s*(\s*VSR[0-9A-Z-]*\s*)\s*$", re.IGNORECASE)
 _EMPTY_PARENS_SUFFIX_RE = re.compile(r"\s*\(\s*\)\s*$")
@@ -136,7 +145,7 @@ def _inject_summary_candidates(
 # ---------------------------------------------------------------------------
 
 def node_clean_and_summarize(state: PredictionState) -> Dict[str, Any]:
-    """Step 1: Clean card text and generate semantic summary."""
+    """Step 1: Clean card text and generate semantic summary. Returns SummaryDoc."""
     t = time.time()
     raw_text = state.get("raw_text", "")
     cleaned_text = clean_card_text(raw_text)
@@ -147,24 +156,35 @@ def node_clean_and_summarize(state: PredictionState) -> Dict[str, Any]:
         errors.append("empty_input_text")
         return {"cleaned_text": cleaned_text, "errors": errors}
 
+    if not _THEME_SOURCE_ACTIVE:
+        logger.debug(
+            "[node_clean_and_summarize] Theme source inactive — "
+            "theme score will be 0 for all candidates in this run"
+        )
+
     llm: Optional[LLMService] = state.get("_llm")  # type: ignore[assignment]
     chain = SummaryChain(llm=llm)
 
     try:
-        new_card_summary = chain.run_card(card_text=cleaned_text)
+        summary_doc: SummaryDoc = chain.run_card(card_text=cleaned_text)
     except Exception as exc:
         logger.error("[node_clean_and_summarize] Summary failed: %s", exc)
-        new_card_summary = _deterministic_fallback_summary(cleaned_text)
+        fb = _deterministic_fallback_summary(cleaned_text)
+        try:
+            summary_doc = SummaryDoc(**fb)
+        except Exception:
+            summary_doc = SummaryDoc()
         warnings = list(state.get("warnings", []))
         warnings.append(f"summary_generation_failed: {type(exc).__name__}")
         return {
             "cleaned_text": cleaned_text,
-            "new_card_summary": new_card_summary,
+            "new_card_summary": summary_doc.model_dump(),
             "warnings": warnings,
         }
 
     logger.info("[node_clean_and_summarize] done in %.2fs", time.time() - t)
-    return {"cleaned_text": cleaned_text, "new_card_summary": new_card_summary}
+    # Serialize to dict for state transport; nodes consume from state as dicts
+    return {"cleaned_text": cleaned_text, "new_card_summary": summary_doc.model_dump()}
 
 
 def node_retrieve_analogs(state: PredictionState) -> Dict[str, Any]:
@@ -388,7 +408,7 @@ def node_fuse_scores(state: PredictionState) -> Dict[str, Any]:
 
 
 def node_verify_candidates(state: PredictionState) -> Dict[str, Any]:
-    """Step 9 (Pass 1): LLM evidence verification."""
+    """Step 9 (Pass 1): Per-candidate evidence verification → VerificationResult."""
     t = time.time()
     new_card_summary = state.get("new_card_summary", {})
     analog_tickets = state.get("analog_tickets", [])
@@ -397,7 +417,6 @@ def node_verify_candidates(state: PredictionState) -> Dict[str, Any]:
     allowed_names = state.get("allowed_value_stream_names")
     llm: Optional[LLMService] = state.get("_llm")  # type: ignore[assignment]
 
-    # Filter to allowed names
     candidates = fused_candidates
     if allowed_names:
         allowed_set = {_norm_text(n) for n in allowed_names}
@@ -406,41 +425,77 @@ def node_verify_candidates(state: PredictionState) -> Dict[str, Any]:
             if _norm_text(c.get("candidate_name") or c.get("entity_name", "")) in allowed_set
         ]
 
-    chain = SelectorVerifyChain(llm=llm)
-    result = chain.run(
+    chain = SelectorVerifyChain(llm=llm)  # defaults to v3 prompt
+    verification_result: VerificationResult = chain.run(
         new_card_summary=new_card_summary,
         analog_tickets=analog_tickets,
         candidates=candidates,
         raw_evidence=raw_evidence,
     )
 
-    logger.info("[node_verify_candidates] done in %.2fs", time.time() - t)
-    return {
-        "selection_result": result,
-        "_verify_result": result,  # pass to finalize node
-    }
+    # Serialise to dicts for state transport
+    judgment_dicts = [j.model_dump() for j in verification_result.judgments]
+    logger.info("[node_verify_candidates] done in %.2fs | %d judgments", time.time() - t, len(judgment_dicts))
+    return {"verify_judgments": judgment_dicts}
 
 
 def node_finalize_selection(state: PredictionState) -> Dict[str, Any]:
-    """Step 9 (Pass 2): LLM finalize and calibrate."""
+    """Step 9 (Pass 2): VerificationResult → SelectionResult."""
     t = time.time()
     new_card_summary = state.get("new_card_summary", {})
-    preliminary = state.get("_verify_result") or state.get("selection_result", {})
+    judgment_dicts = state.get("verify_judgments", [])
+    fused_candidates = state.get("fused_candidates", [])
     llm: Optional[LLMService] = state.get("_llm")  # type: ignore[assignment]
 
-    chain = SelectorFinalizeChain(llm=llm)
-    result = chain.run(
+    judgments = [
+        CandidateJudgment(**j) if isinstance(j, dict) else j
+        for j in judgment_dicts
+    ]
+    verification_result = VerificationResult(judgments=judgments)
+
+    chain = SelectorFinalizeChain(llm=llm)  # defaults to v3 prompt
+    selection_result: SelectionResult = chain.run(
         new_card_summary=new_card_summary,
-        preliminary_classification=preliminary,
+        verification_result=verification_result,
+        fused_candidates=fused_candidates,
     )
 
     logger.info("[node_finalize_selection] done in %.2fs", time.time() - t)
-    return {"selection_result": result}
+    # Serialise to dict for state transport; finalize_output deserialises
+    return {"selection_result": selection_result.model_dump()}
 
 
 def node_finalize_output(state: PredictionState) -> Dict[str, Any]:
-    """Step 10: Finalize three-class output with dedup and compat fields."""
-    selection_result = state.get("selection_result", {})
+    """Step 10: Dedup, compat fields, and finalize three-class output."""
+    from summary_rag.chains.selector_finalize_chain import _judgments_to_selection_result
+
+    selection_dict = state.get("selection_result") or {}
+    # Rehydrate into SelectionResult for consistent access
+    if isinstance(selection_dict, SelectionResult):
+        sr = selection_dict
+    else:
+        try:
+            sr = SelectionResult.model_validate(selection_dict)
+        except Exception:
+            sr = SelectionResult()
+
+    raw_directly = [s.model_dump() for s in sr.directly_supported]
+    raw_pattern = [s.model_dump() for s in sr.pattern_inferred]
+    raw_no_ev = [s.model_dump() for s in sr.no_evidence]
+
+    # Fall back to converting verify_judgments directly if selection_result is empty
+    if not raw_directly and not raw_pattern and not raw_no_ev:
+        judgment_dicts = state.get("verify_judgments", [])
+        if judgment_dicts:
+            judgments = [
+                CandidateJudgment(**j) if isinstance(j, dict) else j
+                for j in judgment_dicts
+            ]
+            fallback = _judgments_to_selection_result(judgments)
+            raw_directly = [s.model_dump() for s in fallback.directly_supported]
+            raw_pattern = [s.model_dump() for s in fallback.pattern_inferred]
+            raw_no_ev = [s.model_dump() for s in fallback.no_evidence]
+
     seen_names: set = set()
 
     def _dedup_vs_list(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -456,9 +511,9 @@ def node_finalize_output(state: PredictionState) -> Dict[str, Any]:
             out.append({**vs, "entity_name": cleaned})
         return out
 
-    directly_supported = _dedup_vs_list(selection_result.get("directly_supported", []))
-    pattern_inferred = _dedup_vs_list(selection_result.get("pattern_inferred", []))
-    no_evidence = selection_result.get("no_evidence", [])
+    directly_supported = _dedup_vs_list(raw_directly)
+    pattern_inferred = _dedup_vs_list(raw_pattern)
+    no_evidence = raw_no_ev
 
     selected_value_streams = []
     for vs in directly_supported:

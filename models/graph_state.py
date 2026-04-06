@@ -56,7 +56,8 @@ class PredictionState(TypedDict, total=False):
     fused_candidates: List[Dict[str, Any]]
 
     # --- Step 9: LLM verification / selection ---
-    selection_result: Dict[str, Any]        # SelectionResult-shaped dict
+    verify_judgments: List[Dict[str, Any]]  # List[CandidateJudgment] dicts from Pass 1
+    selection_result: Dict[str, Any]        # SelectionResult-shaped dict from Pass 2
 
     # --- Final output ---
     directly_supported: List[Dict[str, Any]]

@@ -1,9 +1,17 @@
 """
 LangChain-style selector verification chain — Pass 1 (V5 architecture).
 
-Calls the LLM to classify each candidate value stream into
-directly_supported / pattern_inferred / no_evidence based on the
-full evidence context.
+Returns VerificationResult (flat List[CandidateJudgment]) — one judgment per
+candidate. Pass 2 (SelectorFinalizeChain) groups and calibrates these into the
+final SelectionResult.
+
+Primary path: provider-native structured output via structured_generate().
+Fallback: text generation + JSON parse + model_validate().
+
+Prompt version hierarchy:
+  v3 (default): schema-light, relies on structured output
+  v2: schema in prompt, per-candidate flat list
+  v1: legacy grouped bucket output (compat)
 """
 
 from __future__ import annotations
@@ -12,11 +20,27 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
-from summary_rag.ingestion.adapters import LLMService, get_default_llm, safe_json_extract
+from summary_rag.ingestion.adapters import (
+    LLMService,
+    get_default_llm,
+    structured_generate,
+    safe_json_extract,
+)
+from summary_rag.models.candidate_judgment import (
+    CandidateJudgment,
+    VerificationResult,
+    BucketLabel,
+)
 from .prompt_loader import load_prompt, render_prompt
 
 logger = logging.getLogger(__name__)
 
+_VALID_BUCKETS: set = {"directly_supported", "pattern_inferred", "no_evidence"}
+
+
+# ---------------------------------------------------------------------------
+# Formatting helpers
+# ---------------------------------------------------------------------------
 
 def _format_new_card_summary(summary: Dict[str, Any]) -> str:
     parts = []
@@ -29,17 +53,16 @@ def _format_new_card_summary(summary: Dict[str, Any]) -> str:
     raw_direct = summary.get("direct_functions_raw") or summary.get("direct_functions") or []
     canon_direct = summary.get("direct_functions_canonical") or []
     if raw_direct:
-        parts.append(f"Direct functions (raw): {', '.join(raw_direct)}")
-    if canon_direct:
-        parts.append(f"Direct functions (canonical): {', '.join(canon_direct)}")
+        parts.append(f"Direct functions: {', '.join(raw_direct)}")
+    if canon_direct and canon_direct != raw_direct:
+        parts.append(f"Canonical functions: {', '.join(canon_direct)}")
     raw_implied = summary.get("implied_functions_raw") or summary.get("implied_functions") or []
-    canon_implied = summary.get("implied_functions_canonical") or []
     if raw_implied:
-        parts.append(f"Implied functions (raw): {', '.join(raw_implied)}")
-    if canon_implied:
-        parts.append(f"Implied functions (canonical): {', '.join(canon_implied)}")
+        parts.append(f"Implied functions: {', '.join(raw_implied)}")
     if summary.get("capability_tags"):
         parts.append(f"Capability tags: {', '.join(summary['capability_tags'])}")
+    if summary.get("operational_footprint"):
+        parts.append(f"Footprint: {', '.join(summary['operational_footprint'][:4])}")
     if summary.get("change_types"):
         parts.append(f"Change types: {', '.join(summary['change_types'])}")
     if summary.get("domain_tags"):
@@ -52,7 +75,7 @@ def _format_analog_summaries(analogs: List[Dict[str, Any]], limit: int = 5) -> s
         return "No historical analogs found."
     parts = []
     for i, analog in enumerate(analogs[:limit], 1):
-        lines = [f"### Analog {i}: {analog.get('ticket_id', '?')} (score: {analog.get('score', 0):.4f})"]
+        lines = [f"### Analog {i}: {analog.get('ticket_id', '?')} (score: {analog.get('score', 0):.3f})"]
         if analog.get("short_summary"):
             lines.append(f"  Summary: {analog['short_summary']}")
         funcs = analog.get("direct_functions_canonical") or analog.get("direct_functions") or []
@@ -64,11 +87,10 @@ def _format_analog_summaries(analogs: List[Dict[str, Any]], limit: int = 5) -> s
             lines.append(f"  Capabilities: {', '.join(analog['capability_tags'])}")
         footprint = analog.get("operational_footprint") or []
         if footprint:
-            lines.append(f"  Footprint: {', '.join(footprint[:6])}")
+            lines.append(f"  Footprint: {', '.join(footprint[:5])}")
         sst = analog.get("stream_support_type") or {}
         if sst:
-            sst_summary = ", ".join(f"{k}:{v}" for k, v in list(sst.items())[:4])
-            lines.append(f"  Support types: {sst_summary}")
+            lines.append(f"  Support types: {', '.join(f'{k}:{v}' for k, v in list(sst.items())[:3])}")
         parts.append("\n".join(lines))
     return "\n\n".join(parts)
 
@@ -83,13 +105,10 @@ def _format_candidate_evidence(candidates: List[Dict[str, Any]], limit: int = 20
         support_type = cand.get("support_type", "unknown")
         diversity = cand.get("source_diversity_count", 0)
         source_scores = cand.get("source_scores", {})
-        active_scores = {k: round(v, 2) for k, v in source_scores.items() if v > 0}
-        line = f"- {name} [fused: {fused:.3f}, type: {support_type}, sources: {diversity}]"
-        if active_scores:
-            line += f"\n  Scores: {active_scores}"
-        desc = cand.get("description", "")
-        if desc:
-            line += f"\n  {desc[:150]}"
+        active = {k: round(v, 2) for k, v in source_scores.items() if v > 0}
+        line = f"- {name} [fused:{fused:.3f}, type:{support_type}, sources:{diversity}]"
+        if active:
+            line += f"\n  Active: {active}"
         parts.append(line)
     return "\n".join(parts)
 
@@ -97,29 +116,34 @@ def _format_candidate_evidence(candidates: List[Dict[str, Any]], limit: int = 20
 def _format_raw_evidence(evidence: List[Dict[str, Any]]) -> str:
     if not evidence:
         return ""
-    parts = ["## RAW EVIDENCE SNIPPETS (for verification)\n"]
+    parts = ["## RAW EVIDENCE SNIPPETS\n"]
     for ev in evidence[:8]:
         parts.append(f"- [{ev.get('ticket_id', '?')}] {ev.get('snippet', '')}")
     return "\n".join(parts)
 
 
+# ---------------------------------------------------------------------------
+# Chain
+# ---------------------------------------------------------------------------
+
 class SelectorVerifyChain:
     """
     Pass 1 of the two-pass LLM verifier.
 
-    Classifies each candidate value stream as directly_supported,
-    pattern_inferred, or no_evidence.
+    Returns VerificationResult (flat List[CandidateJudgment]) — one per candidate.
+    Pass 2 (SelectorFinalizeChain) groups and calibrates into SelectionResult.
     """
 
     def __init__(
         self,
         *,
         llm: Optional[LLMService] = None,
-        prompt_version: str = "v1",
+        prompt_version: str = "v3",
         max_retries: int = 2,
     ) -> None:
         self._llm = llm
         self._max_retries = max_retries
+        self._prompt_version = prompt_version
         self._prompt = load_prompt("verify_candidates", version=prompt_version)
 
     @property
@@ -135,13 +159,18 @@ class SelectorVerifyChain:
         analog_tickets: List[Dict[str, Any]],
         candidates: List[Dict[str, Any]],
         raw_evidence: Optional[List[Dict[str, Any]]] = None,
-    ) -> Dict[str, Any]:
+    ) -> VerificationResult:
         """
-        Run pass 1 verification.
+        Run Pass 1 verification.
 
-        Returns dict with: directly_supported, pattern_inferred, no_evidence,
-        raw_response, prompt_system, prompt_user.
+        Returns VerificationResult with one CandidateJudgment per candidate.
+        Any candidates missing from LLM output are covered with no_evidence fallback.
         """
+        candidate_names = [
+            (c.get("candidate_name") or c.get("entity_name") or "").strip()
+            for c in candidates
+        ]
+
         system = self._prompt["system"]
         user = render_prompt(
             self._prompt,
@@ -154,32 +183,67 @@ class SelectorVerifyChain:
             role="user",
         )
 
-        parsed: Optional[Dict] = None
-        raw_response: Optional[str] = None
-
         for attempt in range(1, self._max_retries + 1):
             try:
-                reply = self.llm.generate(query=user, context="", system_prompt=system)
-                raw_response = reply.content
-                parsed = safe_json_extract(raw_response)
-                if isinstance(parsed, dict) and any(
-                    k in parsed for k in ("directly_supported", "pattern_inferred", "no_evidence")
-                ):
-                    break
-                parsed = None
+                result = structured_generate(
+                    self.llm,
+                    user,
+                    VerificationResult,
+                    context="",
+                    system_prompt=system,
+                )
+                if result.judgments:
+                    return self._ensure_coverage(result, candidate_names)
             except Exception as exc:
                 logger.error("[VerifyChain] Attempt %d failed: %s", attempt, exc)
                 if attempt < self._max_retries:
                     time.sleep(3 * attempt)
 
-        if not parsed:
-            parsed = {"directly_supported": [], "pattern_inferred": [], "no_evidence": []}
+        logger.warning("[VerifyChain] All attempts failed, returning no_evidence for all candidates")
+        return VerificationResult(
+            judgments=[
+                CandidateJudgment(
+                    entity_name=name,
+                    bucket="no_evidence",
+                    confidence=0.0,
+                    rationale="Verification pass failed.",
+                )
+                for name in candidate_names
+                if name
+            ]
+        )
 
-        return {
-            "directly_supported": parsed.get("directly_supported", []),
-            "pattern_inferred": parsed.get("pattern_inferred", []),
-            "no_evidence": parsed.get("no_evidence", []),
-            "raw_response": raw_response,
-            "prompt_system": system,
-            "prompt_user": user,
-        }
+    def _ensure_coverage(
+        self,
+        result: VerificationResult,
+        candidate_names: List[str],
+    ) -> VerificationResult:
+        """
+        Ensure every candidate has exactly one judgment.
+
+        Adds no_evidence fallback for candidates missing from LLM output.
+        Normalises invalid bucket labels.
+        """
+        seen: Dict[str, CandidateJudgment] = {}
+        for j in result.judgments:
+            name = j.entity_name.strip()
+            if not name:
+                continue
+            # Clamp invalid bucket labels
+            if j.bucket not in _VALID_BUCKETS:
+                j = j.model_copy(update={"bucket": "no_evidence"})
+            seen[name] = j
+
+        final = list(seen.values())
+        seen_lower = {n.lower() for n in seen}
+
+        for name in candidate_names:
+            if name and name.lower() not in seen_lower:
+                final.append(CandidateJudgment(
+                    entity_name=name,
+                    bucket="no_evidence",
+                    confidence=0.0,
+                    rationale="Not covered in verification pass.",
+                ))
+
+        return VerificationResult(judgments=final)

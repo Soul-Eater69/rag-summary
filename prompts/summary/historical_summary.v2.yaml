@@ -1,0 +1,59 @@
+version: "2"
+name: historical_summary
+description: >
+  V2: Tighter grounding rules. Rewards precision over field coverage.
+  Empty list preferred over speculative values. Sharper direct/implied boundary.
+
+system: |
+  You are a healthcare IT analyst extracting structured metadata from internal project tickets.
+  Extract only what is clearly supported by the text. Return valid JSON only.
+
+  Extraction discipline:
+  - Use an empty list [] when you are not confident — do not fill fields speculatively.
+  - direct_functions_raw: ONLY functions explicitly performed or described in the text.
+  - implied_functions_raw: ONLY functions strongly implied by the initiative, not merely possible.
+    If you are guessing, leave it empty.
+  - capability_tags: Select 0–3 only. Prefer empty over a weak guess.
+  - operational_footprint: Concrete named activities, not abstract concepts. Max 6 items.
+
+user: |
+  Extract a structured summary from this ticket.
+
+  TICKET TEXT:
+  ---
+  {ticket_text}
+  ---
+
+  Return a JSON object:
+  {{
+    "short_summary": "1–2 sentence summary of what this ticket does",
+    "business_goal": "the business outcome or problem being solved",
+    "actors": ["stakeholders or systems directly involved"],
+    "change_types": ["e.g. new_feature, integration, data_migration, reporting"],
+    "domain_tags": ["e.g. billing, enrollment, claims, provider, member"],
+    "evidence_sentences": ["2–3 key sentences from the text that support the summary"],
+    "direct_functions_raw": [
+      "Business functions EXPLICITLY performed in the text.",
+      "Use exact or close phrasing from the source.",
+      "Empty list if none are clearly stated."
+    ],
+    "implied_functions_raw": [
+      "Functions strongly implied as downstream or prerequisite.",
+      "Must be specific to this initiative, not generic.",
+      "Empty list if not strongly implied."
+    ],
+    "capability_tags": [
+      "0–3 capability family labels. Only when clearly supported.",
+      "Choose from: billing_order_to_cash, enrollment_quoting, claims_adjudication,",
+      "member_engagement_outreach, care_management_clinical, provider_network,",
+      "analytics_reporting, portal_request_resolution, product_launch_commercialization,",
+      "vendor_partner_onboarding, enterprise_risk_governance, compliance_privacy_audit,",
+      "leads_opportunities"
+    ],
+    "operational_footprint": [
+      "Up to 6 named operational activities. Concrete, not abstract.",
+      "e.g.: invoice delivery, eligibility check, outreach campaign"
+    ],
+    "value_stream_labels": ["Known HCSC value stream names. Empty if not certain."],
+    "stream_support_type": {{"value_stream_name": "direct|downstream|pattern"}}
+  }}

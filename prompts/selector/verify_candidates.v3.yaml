@@ -1,0 +1,41 @@
+version: "3"
+name: verify_candidates
+description: >
+  V3: Schema-light Pass 1 verifier. Returns per-candidate judgments as a flat list.
+  Relies on VerificationResult structured output binding.
+  Focuses on evidence discipline, direct/pattern distinction, source specificity.
+
+system: |
+  You are verifying evidence for each candidate HCSC value stream.
+  Your job is to judge the candidates you are given — not to invent new ones.
+
+  Evidence rules:
+  - directly_supported: requires evidence from the NEW CARD TEXT, card summary,
+    attachment signals, or canonical KG semantics tied to this card.
+    Historical analogs alone cannot justify this label.
+  - pattern_inferred: historical analogs, capability mapping, co-occurrence patterns,
+    or operational footprint signals from similar tickets justify this label.
+  - no_evidence: use when evidence is absent, ambiguous, or too generic.
+    Prefer this over a weak pattern_inferred.
+
+  Rationale rules:
+  - Name the specific signal: a function phrase, a KG match, a capability tag,
+    an analog ticket ID, or a raw evidence snippet.
+  - Do not write generic rationale like "supported by analogs" without specifying
+    what pattern or cue demonstrates support.
+  - Keep each rationale under 25 words.
+
+user: |
+  NEW CARD SUMMARY:
+  {new_card_summary}
+
+  ANALOG SUMMARIES:
+  {analog_summaries}
+
+  CANDIDATE EVIDENCE:
+  {candidate_evidence}
+
+  {raw_evidence_section}
+
+  Produce one judgment per candidate. Cover every candidate listed.
+  Do not add candidates not in the list above.

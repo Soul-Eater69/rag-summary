@@ -41,14 +41,9 @@ def should_run_finalize(
 ) -> Literal["finalize_selection", "finalize_output"]:
     """
     After verify_candidates: run pass-2 finalize only if pass-1 produced
-    results. If pass-1 was empty (total LLM failure), skip straight to output.
+    judgments. If judgment list is empty (total LLM failure), skip to output.
     """
-    result = state.get("selection_result") or {}
-    has_any = (
-        result.get("directly_supported")
-        or result.get("pattern_inferred")
-        or result.get("no_evidence")
-    )
-    if has_any:
+    judgments = state.get("verify_judgments") or []
+    if judgments:
         return "finalize_selection"
     return "finalize_output"
