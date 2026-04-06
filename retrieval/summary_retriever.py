@@ -21,8 +21,8 @@ import logging
 import pathlib
 from typing import Any, Dict, List, Optional
 
-from summary_rag.ingestion.faiss_indexer import search_summary_index, DEFAULT_INDEX_DIR
-from summary_rag.ingestion.summary_generator import build_retrieval_text
+from rag_summary.ingestion.faiss_indexer import search_summary_index, DEFAULT_INDEX_DIR
+from rag_summary.ingestion.summary_generator import build_retrieval_text
 
 logger = logging.getLogger(__name__)
 
@@ -310,7 +310,7 @@ def enrich_historical_candidates(
       - capability_overlap_score: float (max overlap across supporting analogs)
       - evidence_phrases: List[str]
     """
-    from summary_rag.retrieval.history_patterns import compute_capability_overlap
+    from rag_summary.retrieval.history_patterns import compute_capability_overlap
 
     _TYPE_WEIGHT = {"direct": 1.00, "downstream": 0.80, "pattern": 0.60}
 

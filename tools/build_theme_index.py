@@ -10,7 +10,7 @@ Output (written to --output-dir):
   theme_manifest.json — ThemeIndexManifest with build metadata
 
 Usage:
-    python -m summary_rag.tools.build_theme_index \\
+    python -m rag_summary.tools.build_theme_index \\
         --summary-dir summaries/ \\
         --output-dir config/theme_index/ \\
         [--n-clusters 40] \\
@@ -295,7 +295,7 @@ def build_theme_index(
     import numpy as np
 
     if embedding_svc is None:
-        from summary_rag.ingestion.adapters import get_default_embedding
+        from rag_summary.ingestion.adapters import get_default_embedding
         embedding_svc = get_default_embedding()
 
     # 1. Load

@@ -18,13 +18,13 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from summary_rag.ingestion.adapters import (
+from rag_summary.ingestion.adapters import (
     LLMService,
     get_default_llm,
     structured_generate,
 )
-from summary_rag.ingestion.function_normalizer import normalize_functions
-from summary_rag.models.summary_doc import SummaryDoc
+from rag_summary.ingestion.function_normalizer import normalize_functions
+from rag_summary.models.summary_doc import SummaryDoc
 from .prompt_loader import load_prompt, render_prompt
 
 logger = logging.getLogger(__name__)

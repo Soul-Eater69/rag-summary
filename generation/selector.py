@@ -26,7 +26,7 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
-from summary_rag.ingestion.adapters import (
+from rag_summary.ingestion.adapters import (
     LLMService,
     get_default_llm,
     safe_json_extract,

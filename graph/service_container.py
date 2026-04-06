@@ -6,7 +6,7 @@ can accept a container rather than individual keyword arguments, making tests
 easy to write by swapping in fake implementations.
 
 Usage:
-    from summary_rag.graph.service_container import ServiceContainer, build_default_container
+    from rag_summary.graph.service_container import ServiceContainer, build_default_container
 
     # Production
     container = build_default_container(
@@ -28,7 +28,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from summary_rag.ingestion.adapters import (
+from rag_summary.ingestion.adapters import (
     EmbeddingService,
     KGRetrievalService,
     LLMService,
@@ -97,7 +97,7 @@ def build_default_container(
 
     # Theme service: use real FAISS impl if theme_index_dir provided
     if theme_index_dir:
-        from summary_rag.ingestion.theme_retrieval_service import FaissThemeRetrievalService
+        from rag_summary.ingestion.theme_retrieval_service import FaissThemeRetrievalService
         resolved_theme: ThemeRetrievalService = FaissThemeRetrievalService(
             theme_index_dir=theme_index_dir,
             embedding_svc=resolved_embedding,
@@ -106,14 +106,14 @@ def build_default_container(
         resolved_theme = get_default_theme()
 
     # Summary index: wrap FaissIndexer in adapter
-    from summary_rag.ingestion.adapters_impl import FaissIndexAdapter
+    from rag_summary.ingestion.adapters_impl import FaissIndexAdapter
     resolved_summary_index: SummaryIndexService = FaissIndexAdapter(
         index_dir=index_dir,
         embedding_svc=resolved_embedding,
     )
 
     # Raw evidence: wrap filesystem ticket_chunks/ reader
-    from summary_rag.ingestion.adapters_impl import TicketChunksAdapter
+    from rag_summary.ingestion.adapters_impl import TicketChunksAdapter
     resolved_raw_evidence: RawEvidenceService = TicketChunksAdapter(
         ticket_chunks_dir=ticket_chunks_dir,
     )

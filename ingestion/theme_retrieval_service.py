@@ -4,8 +4,8 @@ FaissThemeRetrievalService — real ThemeRetrievalService backed by ThemeFaissIn
 Replaces the _NoopThemeService default when a theme index has been built.
 
 Usage:
-    from summary_rag.ingestion.theme_retrieval_service import FaissThemeRetrievalService
-    from summary_rag.ingestion.adapters import get_default_embedding
+    from rag_summary.ingestion.theme_retrieval_service import FaissThemeRetrievalService
+    from rag_summary.ingestion.adapters import get_default_embedding
 
     theme_svc = FaissThemeRetrievalService(
         theme_index_dir="config/theme_index",
@@ -19,8 +19,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from summary_rag.ingestion.theme_indexer import ThemeFaissIndexer
-from summary_rag.ingestion.adapters import EmbeddingService
+from rag_summary.ingestion.theme_indexer import ThemeFaissIndexer
+from rag_summary.ingestion.adapters import EmbeddingService
 
 logger = logging.getLogger(__name__)
 

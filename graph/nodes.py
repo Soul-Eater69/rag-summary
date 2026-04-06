@@ -29,8 +29,8 @@ import re
 import time
 from typing import Any, Dict, List, Optional
 
-from summary_rag.models.graph_state import PredictionState
-from summary_rag.ingestion.adapters import (
+from rag_summary.models.graph_state import PredictionState
+from rag_summary.ingestion.adapters import (
     LLMService,
     EmbeddingService,
     KGRetrievalService,
@@ -40,9 +40,9 @@ from summary_rag.ingestion.adapters import (
     clean_card_text,
     normalize_text as _norm_text,
 )
-from summary_rag.ingestion.function_normalizer import normalize_functions
-from summary_rag.ingestion.faiss_indexer import DEFAULT_INDEX_DIR
-from summary_rag.retrieval import (
+from rag_summary.ingestion.function_normalizer import normalize_functions
+from rag_summary.ingestion.faiss_indexer import DEFAULT_INDEX_DIR
+from rag_summary.retrieval import (
     retrieve_analog_tickets,
     retrieve_raw_evidence_for_tickets,
     retrieve_kg_candidates,
@@ -51,29 +51,29 @@ from summary_rag.retrieval import (
     detect_bundle_patterns,
     detect_downstream_chains,
 )
-from summary_rag.generation.capability_mapper import map_capabilities_to_candidates
-from summary_rag.generation.candidate_evidence import (
+from rag_summary.generation.capability_mapper import map_capabilities_to_candidates
+from rag_summary.generation.candidate_evidence import (
     build_candidate_evidence,
     SOURCE_SUMMARY,
     ALL_SOURCES,
     _classify_support_type,
 )
-from summary_rag.generation.fusion import compute_fused_scores, apply_candidate_floor
-from summary_rag.generation.card_candidates import (
+from rag_summary.generation.fusion import compute_fused_scores, apply_candidate_floor
+from rag_summary.generation.card_candidates import (
     extract_summary_candidates,
     extract_chunk_candidates,
     extract_historical_footprint_candidates,
     extract_card_attachment_candidates,
 )
-from summary_rag.retrieval import enrich_historical_candidates
-from summary_rag.ingestion.adapters import get_default_theme, ThemeRetrievalService
-from summary_rag.chains.summary_chain import SummaryChain
-from summary_rag.chains.selector_verify_chain import SelectorVerifyChain
-from summary_rag.chains.selector_finalize_chain import SelectorFinalizeChain
-from summary_rag.models.summary_doc import SummaryDoc
-from summary_rag.models.candidate_judgment import CandidateJudgment, VerificationResult
-from summary_rag.models.selection import SelectionResult, SupportedStream, UnsupportedStream
-from summary_rag.generation.candidate_evidence import SOURCE_THEME
+from rag_summary.retrieval import enrich_historical_candidates
+from rag_summary.ingestion.adapters import get_default_theme, ThemeRetrievalService
+from rag_summary.chains.summary_chain import SummaryChain
+from rag_summary.chains.selector_verify_chain import SelectorVerifyChain
+from rag_summary.chains.selector_finalize_chain import SelectorFinalizeChain
+from rag_summary.models.summary_doc import SummaryDoc
+from rag_summary.models.candidate_judgment import CandidateJudgment, VerificationResult
+from rag_summary.models.selection import SelectionResult, SupportedStream, UnsupportedStream
+from rag_summary.generation.candidate_evidence import SOURCE_THEME
 
 logger = logging.getLogger(__name__)
 
@@ -161,7 +161,7 @@ def _inject_footprint_patterns(
     Downstream chains: for each (upstream_vs, downstream_vs) pair, if the
     downstream_vs is an existing candidate, add a sub_source=downstream_chain snippet.
     """
-    from summary_rag.generation.candidate_evidence import SOURCE_HISTORICAL
+    from rag_summary.generation.candidate_evidence import SOURCE_HISTORICAL
     by_name = {_norm_text(c.get("candidate_name", "")): c for c in candidate_evidence}
 
     for bp in bundle_patterns:
@@ -321,7 +321,7 @@ def node_retrieve_kg(state: PredictionState) -> Dict[str, Any]:
     allowed_names = state.get("allowed_value_stream_names")
     top_k = state.get("_top_kg_candidates", 20)  # type: ignore[call-overload]
 
-    from summary_rag.ingestion import build_retrieval_text
+    from rag_summary.ingestion import build_retrieval_text
     kg_query_text = build_retrieval_text(new_card_summary).strip() or cleaned_text
 
     kg_candidates: List[Dict[str, Any]] = []
@@ -360,7 +360,7 @@ def node_retrieve_themes(state: PredictionState) -> Dict[str, Any]:
     # V6: intake_date cutoff prevents leaking future themes of this card
     intake_date = state.get("_intake_date")  # type: ignore[call-overload]
 
-    from summary_rag.ingestion import build_retrieval_text
+    from rag_summary.ingestion import build_retrieval_text
     query = build_retrieval_text(new_card_summary).strip() or cleaned_text
 
     theme_candidates: List[Dict[str, Any]] = []
@@ -471,7 +471,7 @@ def node_collect_raw_evidence(state: PredictionState) -> Dict[str, Any]:
     ticket_chunks_dir = state.get("_ticket_chunks_dir", "ticket_chunks")  # type: ignore[call-overload]
     max_tickets = state.get("_max_raw_evidence_tickets", 3)  # type: ignore[call-overload]
 
-    from summary_rag.ingestion import build_retrieval_text
+    from rag_summary.ingestion import build_retrieval_text
     kg_query = build_retrieval_text(new_card_summary).strip() or cleaned_text
 
     top_ticket_ids = [
@@ -669,7 +669,7 @@ def node_finalize_selection(state: PredictionState) -> Dict[str, Any]:
 
 def node_finalize_output(state: PredictionState) -> Dict[str, Any]:
     """Step 10: Dedup, compat fields, and finalize three-class output."""
-    from summary_rag.chains.selector_finalize_chain import _judgments_to_selection_result
+    from rag_summary.chains.selector_finalize_chain import _judgments_to_selection_result
 
     selection_dict = state.get("selection_result") or {}
     # Rehydrate into SelectionResult for consistent access

@@ -14,7 +14,7 @@ Usage
 -----
 From other modules::
 
-    from summary_rag.ingestion.schema import SummaryDoc
+    from rag_summary.ingestion.schema import SummaryDoc
 
 Type hints::
 

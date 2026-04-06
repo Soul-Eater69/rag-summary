@@ -20,12 +20,12 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
-from summary_rag.ingestion.adapters import (
+from rag_summary.ingestion.adapters import (
     LLMService,
     get_default_llm,
     structured_generate,
 )
-from summary_rag.models.candidate_judgment import (
+from rag_summary.models.candidate_judgment import (
     CandidateJudgment,
     VerificationResult,
     BucketLabel,

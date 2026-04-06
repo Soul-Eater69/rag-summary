@@ -28,8 +28,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from summary_rag.ingestion.faiss_indexer import DEFAULT_INDEX_DIR
-from summary_rag.graph import run_prediction_graph
+from rag_summary.ingestion.faiss_indexer import DEFAULT_INDEX_DIR
+from rag_summary.graph import run_prediction_graph
 
 
 def run_summary_rag_pipeline(

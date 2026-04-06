@@ -10,7 +10,7 @@ degradations in VS coverage or cue quality.
 Exit code: 0 (no regressions), 1 (regressions found), 2 (error)
 
 Usage:
-    python -m summary_rag.tools.capability_map_regression_check \\
+    python -m rag_summary.tools.capability_map_regression_check \\
         --baseline config/capability_map.baseline.yaml \\
         --new config/capability_map.yaml \\
         [--fail-on-regression] \\

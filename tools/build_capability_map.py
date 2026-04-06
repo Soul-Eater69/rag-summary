@@ -17,7 +17,7 @@ The output is compatible with the existing capability_map.yaml schema so it
 can be used as a drop-in replacement for the bootstrap-generated map.
 
 Usage:
-    python -m summary_rag.tools.build_capability_map \\
+    python -m rag_summary.tools.build_capability_map \\
         --summary-dir summaries/ \\
         --output-path config/capability_map.yaml \\
         [--min-ticket-count 3] \\

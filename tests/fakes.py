@@ -10,7 +10,7 @@ Usage:
         FakeLLM, FakeEmbedding, FakeKG, FakeTheme,
         FakeSummaryIndex, FakeRawEvidence,
     )
-    from summary_rag.graph.service_container import ServiceContainer
+    from rag_summary.graph.service_container import ServiceContainer
 
     container = ServiceContainer(
         llm=FakeLLM(response='{"short_summary": "stub summary"}'),

@@ -37,7 +37,7 @@ class FaissIndexAdapter:
 
     def _get_indexer(self):
         if self._indexer is None:
-            from summary_rag.ingestion.faiss_indexer import FaissIndexer
+            from rag_summary.ingestion.faiss_indexer import FaissIndexer
             self._indexer = FaissIndexer(self._index_dir)
         return self._indexer
 

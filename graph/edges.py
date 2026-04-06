@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from summary_rag.models.graph_state import PredictionState
+from rag_summary.models.graph_state import PredictionState
 
 
 def should_continue_after_summarize(

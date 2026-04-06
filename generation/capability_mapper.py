@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional, Set
 
 import yaml
 
-from summary_rag.ingestion.adapters import normalize_text as normalize_for_search
+from rag_summary.ingestion.adapters import normalize_text as normalize_for_search
 
 logger = logging.getLogger(__name__)
 

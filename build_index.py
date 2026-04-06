@@ -2,9 +2,9 @@
 Build the local FAISS summary index from historical ticket chunks.
 
 Usage:
-    python -m summary_rag.build_index
-    python -m summary_rag.build_index --ticket-ids IDMT-19761 IDMT-8199
-    python -m summary_rag.build_index --all
+    python -m rag_summary.build_index
+    python -m rag_summary.build_index --ticket-ids IDMT-19761 IDMT-8199
+    python -m rag_summary.build_index --all
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import logging
 import pathlib
 import sys
 
-from summary_rag.ingestion.faiss_indexer import ingest_tickets_to_index, DEFAULT_INDEX_DIR
+from rag_summary.ingestion.faiss_indexer import ingest_tickets_to_index, DEFAULT_INDEX_DIR
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)

@@ -11,8 +11,8 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
-from summary_rag.models.graph_state import PredictionState
-from summary_rag.ingestion.faiss_indexer import DEFAULT_INDEX_DIR
+from rag_summary.models.graph_state import PredictionState
+from rag_summary.ingestion.faiss_indexer import DEFAULT_INDEX_DIR
 from .nodes import (
     node_clean_and_summarize,
     node_retrieve_analogs,
