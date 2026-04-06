@@ -233,7 +233,57 @@ class _NoopThemeService:
 
 
 def get_default_theme() -> ThemeRetrievalService:
-    """Return the default (noop) theme service. Wire a real implementation to activate."""
+    """
+    Return the default theme service, configured by config/theme_source.yaml.
+
+    Resolution order (when no explicit _theme_svc is injected):
+      1. If backend=faiss (or auto) and FAISS index exists → FaissThemeRetrievalService
+      2. If backend=keyword (or auto, no index) → KeywordThemeService (always active)
+      3. If backend=noop or enabled=false → _NoopThemeService
+
+    This means theme evidence is never silently zero on a fresh repo:
+    KeywordThemeService activates immediately using capability map cues.
+    """
+    import os
+    import pathlib
+
+    config_path = pathlib.Path(__file__).resolve().parent.parent / "config" / "theme_source.yaml"
+    config: dict = {}
+    if config_path.exists():
+        try:
+            import yaml  # type: ignore
+            with open(config_path, "r", encoding="utf-8") as f:
+                config = yaml.safe_load(f) or {}
+        except Exception as exc:
+            logger.warning("[get_default_theme] Failed to load theme_source.yaml: %s", exc)
+
+    if not config.get("enabled", True) or config.get("backend") == "noop":
+        return _NoopThemeService()  # type: ignore[return-value]
+
+    backend = config.get("backend", "auto")
+    theme_index_dir = config.get("theme_index_dir", "config/theme_index")
+
+    if backend in ("auto", "faiss"):
+        index_file = os.path.join(theme_index_dir, "theme_index.faiss")
+        if os.path.exists(index_file):
+            try:
+                from .theme_retrieval_service import FaissThemeRetrievalService
+                embedding_svc = get_default_embedding()
+                return FaissThemeRetrievalService(  # type: ignore[return-value]
+                    theme_index_dir=theme_index_dir,
+                    embedding_svc=embedding_svc,
+                    min_vs_support_fraction=config.get("min_vs_support_fraction", 0.30),
+                )
+            except Exception as exc:
+                logger.warning("[get_default_theme] FAISS theme load failed: %s", exc)
+
+    if backend in ("auto", "keyword"):
+        try:
+            from .keyword_theme_service import KeywordThemeService
+            return KeywordThemeService()  # type: ignore[return-value]
+        except Exception as exc:
+            logger.warning("[get_default_theme] KeywordThemeService load failed: %s", exc)
+
     return _NoopThemeService()  # type: ignore[return-value]
 
 

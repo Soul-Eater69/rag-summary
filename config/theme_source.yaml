@@ -1,0 +1,36 @@
+# Theme source configuration (V6).
+#
+# Controls how node_retrieve_themes selects a ThemeRetrievalService at runtime.
+# Theme service resolution order:
+#   1. Explicit injection (_theme_svc in pipeline state) always wins
+#   2. This config is applied when no explicit injection is present
+#   3. Within this config, backend resolution order is: faiss → keyword → noop
+
+version: "1"
+
+# Set to false to disable theme retrieval entirely (theme score stays 0)
+enabled: true
+
+# Backend selection
+# auto:    try faiss first; fall back to keyword if no index found
+# faiss:   require a FAISS theme index (fails silently if missing → keyword fallback)
+# keyword: always use KeywordThemeService (capability map cue matching, no index needed)
+# noop:    disable theme (explicit off switch; same as enabled: false)
+backend: auto
+
+# Path to theme FAISS index directory (used by faiss and auto backends)
+# Built by: python -m rag_summary.tools.build_theme_index --summary-dir ... --output-dir ...
+theme_index_dir: config/theme_index
+
+# Maximum theme candidates to retrieve per query
+top_k: 10
+
+# Minimum theme candidate score to include in evidence (filters very weak keyword matches)
+min_score: 0.10
+
+# When true, pass the card's intake_date as cutoff_date to the theme service
+# to prevent leaking themes from future tickets. Recommended: true.
+require_intake_date_cutoff: true
+
+# Minimum VS support fraction for theme-derived VS to be included
+min_vs_support_fraction: 0.30
