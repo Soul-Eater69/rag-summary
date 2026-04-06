@@ -1,5 +1,5 @@
 """
-LangGraph StateGraph assembly for the V5 prediction pipeline.
+LangGraph StateGraph assembly for the V6 prediction pipeline.
 
 Builds the graph once (or per-call if stateless) and exposes run_prediction_graph()
 as the primary callable entry point.
@@ -137,6 +137,7 @@ def run_prediction_graph(
     llm=None,
     theme_svc=None,
     intake_date: Optional[str] = None,
+    services=None,
 ) -> Dict[str, Any]:
     """
     Run the V6 prediction pipeline via LangGraph.
@@ -171,6 +172,7 @@ def run_prediction_graph(
         "_llm": llm,  # type: ignore[typeddict-unknown-key]
         "_theme_svc": theme_svc,  # type: ignore[typeddict-unknown-key]
         "_intake_date": intake_date,  # type: ignore[typeddict-unknown-key]
+        "_services": services,  # type: ignore[typeddict-unknown-key]
     }
 
     try:
