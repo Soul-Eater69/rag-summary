@@ -70,6 +70,7 @@ from rag_summary.generation.card_candidates import (
 from rag_summary.retrieval import enrich_historical_candidates
 from rag_summary.ingestion.adapters import get_default_theme, ThemeRetrievalService
 from rag_summary.ingestion.attachment_parser import AttachmentParser
+from rag_summary.ingestion.attachment_extractor import AttachmentExtractor
 from rag_summary.generation.attachment_candidates import extract_attachment_native_candidates
 from rag_summary.chains.summary_chain import SummaryChain
 from rag_summary.chains.selector_verify_chain import SelectorVerifyChain
@@ -196,6 +197,9 @@ def _inject_footprint_patterns(
             entry.setdefault("source_scores", {})[SOURCE_HISTORICAL] = min(
                 1.0, old_score + boost
             )
+            entry["historical_bundle_score"] = round(
+                entry.get("historical_bundle_score", 0.0) + boost, 4
+            )
 
     for dc in downstream_chains:
         down_vs = (dc.get("downstream_vs") or "").strip()
@@ -219,6 +223,9 @@ def _inject_footprint_patterns(
         old_score = entry.get("source_scores", {}).get(SOURCE_HISTORICAL, 0.0)
         entry.setdefault("source_scores", {})[SOURCE_HISTORICAL] = min(
             1.0, old_score + 0.08
+        )
+        entry["historical_downstream_score"] = round(
+            entry.get("historical_downstream_score", 0.0) + 0.08, 4
         )
 
 
@@ -426,18 +433,46 @@ def node_retrieve_themes(state: PredictionState) -> Dict[str, Any]:
     except Exception as exc:
         logger.warning("[node_retrieve_themes] Failed: %s", exc)
 
+    # Build status and debug artifacts
+    theme_source_status = {
+        "backend": type(theme_svc).__name__,
+        "active": len(theme_candidates) > 0,
+        "candidate_count": len(theme_candidates),
+        "max_score": round(max((c.get("score", 0.0) for c in theme_candidates), default=0.0), 4),
+        "intake_date_cutoff_applied": bool(intake_date),
+    }
+    theme_debug = {
+        "service_class": type(theme_svc).__name__,
+        "query_length": len(query),
+        "candidates": [
+            {
+                "entity_name": c.get("entity_name", ""),
+                "score": c.get("score", 0.0),
+                "theme_label": c.get("theme_label", ""),
+                "vs_support_fraction": c.get("vs_support_fraction", 0.0),
+            }
+            for c in theme_candidates[:5]  # top 5 only
+        ],
+    }
+
     if theme_candidates:
         logger.info(
-            "[node_retrieve_themes] done in %.2fs | %d theme candidates",
+            "[node_retrieve_themes] done in %.2fs | %d candidates | backend=%s | max_score=%.3f",
             time.time() - t, len(theme_candidates),
+            theme_source_status["backend"], theme_source_status["max_score"],
         )
     else:
         logger.debug(
-            "[node_retrieve_themes] inactive — 0 candidates "
-            "(wire a ThemeRetrievalService via _theme_svc to activate)"
+            "[node_retrieve_themes] 0 candidates (backend=%s) — "
+            "run build_theme_index.py to activate FAISS themes",
+            theme_source_status["backend"],
         )
 
-    return {"theme_candidates": theme_candidates}
+    return {
+        "theme_candidates": theme_candidates,
+        "theme_source_status": theme_source_status,
+        "theme_debug": theme_debug,
+    }
 
 
 def node_map_capabilities(state: PredictionState) -> Dict[str, Any]:
@@ -564,12 +599,41 @@ def node_parse_attachments(state: PredictionState) -> Dict[str, Any]:
     attachment_contents = state.get("_attachment_contents") or []  # type: ignore[call-overload]
 
     parser = AttachmentParser()
+    extractor = AttachmentExtractor()
     parsed_docs = []
+    extraction_metadata: List[Dict[str, Any]] = []
 
     # Mode 1: explicit attachment files provided by caller
     for attach in attachment_contents:
         filename = attach.get("filename", "attachment")
         text = attach.get("text", "")
+        raw_content = attach.get("content")  # bytes from binary upload
+        meta: Dict[str, Any] = {"filename": filename}
+
+        # If no text yet but binary bytes are present, extract via AttachmentExtractor
+        if not text.strip() and raw_content:
+            try:
+                extracted = extractor.extract(filename, raw_content)
+                text = extracted.get("text", "")
+                meta.update({
+                    "file_type": extracted.get("file_type", "unknown"),
+                    "page_count": extracted.get("page_count", 0),
+                    "sheet_names": extracted.get("sheet_names", []),
+                    "extraction_quality": extracted.get("extraction_quality", "unknown"),
+                    "extraction_warnings": extracted.get("warnings", []),
+                })
+                logger.info(
+                    "[node_parse_attachments] Extracted %s (%s, quality=%s, %d chars)",
+                    filename, meta["file_type"], meta["extraction_quality"], len(text),
+                )
+            except Exception as exc:
+                logger.warning("[node_parse_attachments] Extraction failed for %s: %s", filename, exc)
+                meta["extraction_quality"] = "failed"
+        elif text.strip():
+            meta["extraction_quality"] = "pre_extracted"
+
+        extraction_metadata.append(meta)
+
         if not text.strip():
             continue
         doc = parser.parse_attachment_content(filename, text)
@@ -597,6 +661,7 @@ def node_parse_attachments(state: PredictionState) -> Dict[str, Any]:
     return {
         "attachment_docs": attachment_docs,
         "attachment_native_candidates": attachment_native_candidates,
+        "attachment_extraction_metadata": extraction_metadata,
     }
 
 
@@ -643,22 +708,43 @@ def node_build_evidence(state: PredictionState) -> Dict[str, Any]:
         new_card_summary=new_card_summary,
         analog_summaries=analog_tickets,   # plain dicts; enrich_historical handles them
     )
-    historical_candidates = [
-        {
+    historical_candidates = []
+    for s in enriched_vs_support:
+        cap_overlap = float(s.get("capability_overlap_score") or 0.0)
+        base_score = float(s.get("score") or 0.0)
+
+        # Derive component sub-scores for transparency
+        # semantic_score = base calibrated score from FAISS similarity × type weight
+        # footprint_score = capability overlap contribution
+        # These are stored on the candidate for downstream explanation.
+        semantic_score = round(base_score * 0.70, 4) if cap_overlap > 0 else base_score
+        footprint_score = round(base_score * 0.30, 4) if cap_overlap > 0 else 0.0
+
+        # Build richer evidence phrases distinguishing semantic vs footprint evidence
+        raw_phrases = (
+            s.get("evidence_phrases", [])
+            or s.get("supporting_evidence", [])
+            or s.get("supporting_functions", [])
+        )
+        if cap_overlap >= 0.40:
+            raw_phrases = list(raw_phrases) + [
+                f"capability overlap: {cap_overlap:.0%} shared capability tags with analogs"
+            ]
+
+        historical_candidates.append({
             "entity_name": s.get("entity_name", ""),
-            "score": float(s.get("score") or 0.0),
-            "sub_source": None,   # historical candidates have no attachment sub_source
-            "supporting_evidence": (
-                s.get("evidence_phrases", [])
-                or s.get("supporting_evidence", [])
-                or s.get("supporting_functions", [])
-            ),
+            "score": base_score,
+            "sub_source": None,
+            "supporting_evidence": raw_phrases,
             "capability_tags": s.get("capability_tags", []),
             "operational_footprint": s.get("operational_footprint", []),
-            "capability_overlap_score": s.get("capability_overlap_score", 0.0),
-        }
-        for s in enriched_vs_support
-    ]
+            "capability_overlap_score": cap_overlap,
+            # V6: explicit sub-scores for transparency
+            "historical_semantic_score": semantic_score,
+            "historical_footprint_score": footprint_score,
+            "historical_bundle_score": 0.0,    # filled by _inject_footprint_patterns
+            "historical_downstream_score": 0.0, # filled by _inject_footprint_patterns
+        })
 
     kg_for_evidence = [
         {
@@ -705,16 +791,29 @@ def node_build_evidence(state: PredictionState) -> Dict[str, Any]:
 
 
 def node_fuse_scores(state: PredictionState) -> Dict[str, Any]:
-    """Step 8: Source-aware fused ranking + candidate floor."""
+    """Step 8: Source-aware fused ranking + candidate floor + profile selection."""
     t = time.time()
     candidate_evidence = list(state.get("candidate_evidence", []))
     min_floor = state.get("_min_candidate_floor", 8)  # type: ignore[call-overload]
 
-    fused = compute_fused_scores(candidate_evidence)
+    # Build profile hints from runtime state
+    profile_hints = {
+        "analog_count": len(state.get("analog_tickets", [])),
+        "attachment_native_count": len(state.get("attachment_native_candidates", [])),
+        "theme_candidate_count": len(state.get("theme_candidates", [])),
+    }
+
+    fused = compute_fused_scores(candidate_evidence, profile_hints=profile_hints)
     fused = apply_candidate_floor(fused, min_candidates=min_floor)
 
-    logger.info("[node_fuse_scores] done in %.2fs | %d candidates", time.time() - t, len(fused))
-    return {"fused_candidates": fused}
+    # Record selected profile (same for all candidates)
+    fusion_profile = fused[0].get("fusion_profile", "default") if fused else "default"
+
+    logger.info(
+        "[node_fuse_scores] done in %.2fs | %d candidates | profile=%s",
+        time.time() - t, len(fused), fusion_profile,
+    )
+    return {"fused_candidates": fused, "fusion_profile": fusion_profile}
 
 
 def node_verify_candidates(state: PredictionState) -> Dict[str, Any]:

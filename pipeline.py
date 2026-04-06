@@ -111,6 +111,9 @@ def run_summary_rag_pipeline(
         "raw_response": result.get("selection_result", {}).get("raw_response"),
         "warnings": result.get("warnings", []),
         "timing": result.get("timing", {}),
+        # V6 diagnostic fields
+        "theme_source_status": result.get("theme_source_status", {}),
+        "fusion_profile": result.get("fusion_profile", "default"),
         **({"trace": result.get("trace", {})} if trace_mode else {}),
     }
 
@@ -156,6 +159,11 @@ def _persist_debug_artifacts(output_dir: str, result: Dict[str, Any]) -> None:
             # V6: attachment parsing artifacts
             "attachment_docs.json": result.get("attachment_docs", []),
             "attachment_native_candidates.json": result.get("attachment_native_candidates", []),
+            "attachment_extraction_metadata.json": result.get("attachment_extraction_metadata", []),
+            # V6: theme and fusion diagnostics
+            "theme_source_status.json": result.get("theme_source_status", {}),
+            "theme_debug.json": result.get("theme_debug", {}),
+            "fusion_profile.json": {"profile": result.get("fusion_profile", "default")},
             "eval_log.json": {
                 "directly_supported": [vs.get("entity_name") for vs in result.get("directly_supported", [])],
                 "pattern_inferred": [vs.get("entity_name") for vs in result.get("pattern_inferred", [])],

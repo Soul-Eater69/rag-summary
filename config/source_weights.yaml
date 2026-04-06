@@ -1,39 +1,101 @@
-# Source weights for fused scoring (V5 architecture).
+# Source weights for fused scoring (V6 architecture).
 #
 # Each key is a source name (matching candidate_evidence.py SOURCE_* constants).
 # Values are the weights used in the weighted sum:
-#   S_fused = sum(weight * S_source) + diversity_bonus
+#   S_fused = sum(weight * S_source) + diversity_bonus ± adjustments
 #
-# Weights should sum to approximately 1.0.
-# Tune these based on empirical precision/recall measurements.
+# Base weights should sum to approximately 1.0.
+# Profiles override the base weights when their trigger conditions are met.
+# Tune all values based on empirical precision/recall measurements.
 
-version: "1"
+version: "2"
 
+# -----------------------------------------------------------------------
+# Base weights — used when no profile trigger fires
+# -----------------------------------------------------------------------
 weights:
   chunk: 0.20          # Direct text chunk matches from ticket bodies
   summary: 0.15        # Summary-level signal (card capability_tags, canonical functions)
-  attachment: 0.18     # Proxy attachment signal (analog analog_score × 0.75)
-  theme: 0.08          # Theme/cluster-based inference (future)
+  attachment: 0.18     # Attachment evidence (native=full, proxy=×0.75, heuristic=×0.55)
+  theme: 0.08          # Theme/cluster-based inference (keyword or FAISS)
   kg: 0.18             # Knowledge graph semantic retrieval
-  historical: 0.12     # Historical analog support (FAISS-retrieved)
+  historical: 0.12     # Historical analog support (FAISS-retrieved + footprint patterns)
   capability: 0.09     # Capability map signal (rule-based cue matching)
 
+# -----------------------------------------------------------------------
+# Scoring profiles — applied when trigger conditions are met
+# Only one profile is applied per run (highest priority match wins).
+# -----------------------------------------------------------------------
+profiles:
+  # Fewer than 2 analogs or very low chunk/summary scores → lean harder on KG + historical
+  sparse_evidence:
+    priority: 1
+    description: "Few analogs; lean on KG and historical signals"
+    trigger:
+      max_analog_count: 2
+    weights:
+      chunk: 0.15
+      summary: 0.18
+      attachment: 0.14
+      theme: 0.06
+      kg: 0.24
+      historical: 0.14
+      capability: 0.09
+
+  # Parsed native attachment sections present → reward explicit document evidence
+  attachment_rich:
+    priority: 2
+    description: "Native attachment sections parsed; reward explicit artifact evidence"
+    trigger:
+      min_attachment_native_count: 1
+    weights:
+      chunk: 0.16
+      summary: 0.12
+      attachment: 0.26
+      theme: 0.07
+      kg: 0.16
+      historical: 0.12
+      capability: 0.11
+
+  # Theme service returned meaningful candidates → reward theme signal
+  theme_active:
+    priority: 3
+    description: "Theme source returned candidates; boost theme weight"
+    trigger:
+      min_theme_candidate_count: 3
+    weights:
+      chunk: 0.18
+      summary: 0.14
+      attachment: 0.16
+      theme: 0.14
+      kg: 0.16
+      historical: 0.12
+      capability: 0.10
+
+# -----------------------------------------------------------------------
+# Diversity bonus
+# -----------------------------------------------------------------------
 diversity_bonus:
   per_source: 0.03     # Bonus per active source beyond the first
   max_total: 0.15      # Cap on total diversity bonus
 
+# -----------------------------------------------------------------------
+# Penalties
+# -----------------------------------------------------------------------
 penalties:
   no_evidence: -0.10   # Penalty for candidates with zero active sources
 
+# -----------------------------------------------------------------------
+# Theme promotion bonus
+# -----------------------------------------------------------------------
 theme_promotion:
   min_score: 0.50      # Minimum theme score to trigger bonus
-  bonus: 0.04          # Flat bonus added to fused score when theme score >= min_score
+  bonus: 0.04          # Flat bonus when theme score >= min_score
 
+# -----------------------------------------------------------------------
+# Quality multipliers (applied to attachment source score by sub_source)
+# -----------------------------------------------------------------------
 quality_multipliers:
-  # Applied to the attachment source score based on sub_source type
-  # attachment_native: explicitly parsed attachment content → full weight
-  # attachment_proxy:  analog-derived proxy signal → moderate attenuation
-  # attachment_heuristic: structural card-text pattern → lowest weight
-  attachment_native: 1.00
-  attachment_proxy: 0.75
-  attachment_heuristic: 0.55
+  attachment_native: 1.00    # Explicitly parsed section content — full weight
+  attachment_proxy: 0.75     # Analog-derived proxy signal — moderate attenuation
+  attachment_heuristic: 0.55 # Structural card-text pattern — lowest weight
