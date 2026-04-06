@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Set
 
-from summary_rag.ingestion.adapters import normalize_text as normalize_for_search
+from rag_summary.ingestion.adapters import normalize_text as normalize_for_search
 
 logger = logging.getLogger(__name__)
 
@@ -111,20 +111,30 @@ def build_candidate_evidence(
             if source_key not in entry["evidence_sources"]:
                 entry["evidence_sources"].append(source_key)
 
-            # Collect snippets
+            # Collect snippets — propagate sub_source if present
+            sub_source = cand.get("sub_source") or None
             for snippet in cand.get("snippets", []):
-                entry["evidence_snippets"].append({
+                snip_dict: Dict[str, Any] = {
                     "source": source_key,
                     "snippet": snippet if isinstance(snippet, str) else snippet.get("snippet", ""),
-                })
+                }
+                if sub_source:
+                    snip_dict["sub_source"] = sub_source
+                elif isinstance(snippet, dict) and snippet.get("sub_source"):
+                    snip_dict["sub_source"] = snippet["sub_source"]
+                entry["evidence_snippets"].append(snip_dict)
 
             # Also treat supporting_evidence as snippets
             for ev in cand.get("supporting_evidence", []):
                 if isinstance(ev, str) and ev.strip():
-                    entry["evidence_snippets"].append({
-                        "source": source_key,
-                        "snippet": ev,
-                    })
+                    snip_dict = {"source": source_key, "snippet": ev}
+                    if sub_source:
+                        snip_dict["sub_source"] = sub_source
+                    entry["evidence_snippets"].append(snip_dict)
+
+            # V6: track attachment sub_sources for classify_support_type
+            if source_key == SOURCE_ATTACHMENT and sub_source:
+                entry.setdefault("_attachment_sub_sources", set()).add(sub_source)
 
     # Ingest from each source
     _add_source(kg_candidates, SOURCE_KG)
@@ -152,14 +162,36 @@ def _classify_support_type(entry: Dict[str, Any]) -> str:
     Classify a candidate's support type based on which sources contributed.
 
     Returns one of: "direct", "pattern", "mixed", "none"
+
+    V6 attachment refinement:
+    - attachment_native sub_source → counts as direct evidence
+    - attachment_proxy / attachment_heuristic → counts as pattern evidence only
+    - No sub_source tracking → falls back to treating attachment as direct (V5 compat)
     """
     scores = entry.get("source_scores", {})
 
-    direct_sources = {SOURCE_CHUNK, SOURCE_SUMMARY, SOURCE_ATTACHMENT, SOURCE_KG}
-    pattern_sources = {SOURCE_HISTORICAL, SOURCE_CAPABILITY}
+    # V6: determine attachment contribution quality
+    attachment_score = scores.get(SOURCE_ATTACHMENT, 0.0)
+    attachment_sub_sources = entry.get("_attachment_sub_sources", set())
+    if attachment_score > 0.0 and attachment_sub_sources:
+        attachment_is_native = "attachment_native" in attachment_sub_sources
+        attachment_is_pattern = not attachment_is_native
+    else:
+        # Backward compat: no sub_source tracking → treat as direct
+        attachment_is_native = attachment_score > 0.0
+        attachment_is_pattern = False
 
-    has_direct = any(scores.get(s, 0.0) > 0.0 for s in direct_sources)
-    has_pattern = any(scores.get(s, 0.0) > 0.0 for s in pattern_sources)
+    base_direct_sources = {SOURCE_CHUNK, SOURCE_SUMMARY, SOURCE_KG}
+    pattern_sources = {SOURCE_HISTORICAL, SOURCE_CAPABILITY, SOURCE_THEME}
+
+    has_direct = (
+        any(scores.get(s, 0.0) > 0.0 for s in base_direct_sources)
+        or attachment_is_native
+    )
+    has_pattern = (
+        any(scores.get(s, 0.0) > 0.0 for s in pattern_sources)
+        or attachment_is_pattern
+    )
 
     if has_direct and has_pattern:
         return "mixed"

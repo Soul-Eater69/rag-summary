@@ -4,6 +4,7 @@ from .selection import SelectionResult, SupportedStream, UnsupportedStream
 from .capability_map import CapabilityCluster, CapabilityMap
 from .graph_state import PredictionState
 from .candidate_judgment import CandidateJudgment, VerificationResult, JudgmentList, BucketLabel
+from .theme_doc import ThemeDoc, ThemeIndexManifest
 
 __all__ = [
     "SummaryDoc",
@@ -19,4 +20,6 @@ __all__ = [
     "VerificationResult",
     "JudgmentList",
     "BucketLabel",
+    "ThemeDoc",
+    "ThemeIndexManifest",
 ]

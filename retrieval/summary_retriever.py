@@ -21,8 +21,8 @@ import logging
 import pathlib
 from typing import Any, Dict, List, Optional
 
-from summary_rag.ingestion.faiss_indexer import search_summary_index, DEFAULT_INDEX_DIR
-from summary_rag.ingestion.summary_generator import build_retrieval_text
+from rag_summary.ingestion.faiss_indexer import search_summary_index, DEFAULT_INDEX_DIR
+from rag_summary.ingestion.summary_generator import build_retrieval_text
 
 logger = logging.getLogger(__name__)
 
@@ -273,47 +273,61 @@ def collect_attachment_candidates(
                 "entity_name": label,
                 "score": attachment_score,
                 "source": "attachment",
-                "snippets": snippets[:2],  # carry top snippets for evidence_snippets
+                "sub_source": "attachment_proxy",   # V6: marks as analog-derived
+                "snippets": snippets[:2],
             })
 
     return candidates
 
 def enrich_historical_candidates(
     vs_support: List[Dict[str, Any]],
+    *,
+    new_card_summary: Optional[Dict[str, Any]] = None,
+    analog_summaries: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Enrich vs_support entries with support-type-weighted scores and evidence phrases.
 
-    Two improvements over raw vs_support:
+    V6 additions over V5:
 
-    1. Score calibration by dominant support type
-       Historical analogs now record ``stream_support_types`` — a list of the
-       classification each analog assigned to the stream
-       ("direct", "downstream", "pattern").
-       We compute the dominant type and apply a weight multiplier:
-         - "direct"     → ×1.00  (analog explicitly performed this stream)
-         - "downstream" → ×0.80  (analog depended on this stream downstream)
-         - "pattern"    → ×0.60  (analog matched by pattern/co-occurrence only)
-       This gives "direct" historical analogs more signal than "pattern" ones.
+    1. Score calibration by dominant support type (unchanged from V5):
+         - "direct"     → ×1.00
+         - "downstream" → ×0.80
+         - "pattern"    → ×0.60
 
-    2. Evidence snippet enrichment
-       operational_footprint items and supporting_evidence strings from analogs
-       are surfaced as structured evidence phrases, giving the LLM verifier
-       concrete text to reason over rather than just aggregate scores.
+    2. V6: Capability overlap blending.
+       If new_card_summary and analog_summaries are provided, compute the max
+       Jaccard capability-tag overlap across all analogs that supported this VS.
+       Final score = 0.70 × type_calibrated + 0.30 × capability_overlap.
+       This gives more weight to analogs whose capability profile closely matches
+       the new card, independent of FAISS similarity.
+
+    3. Evidence phrase enrichment (unchanged from V5 + overlap phrase when strong).
 
     Returns a copy of vs_support with added keys:
-      - score: calibrated (replaces best_score as historical candidate score)
+      - score: final blended score
       - dominant_support_type: str
+      - capability_overlap_score: float (max overlap across supporting analogs)
       - evidence_phrases: List[str]
     """
+    from rag_summary.retrieval.history_patterns import compute_capability_overlap
+
     _TYPE_WEIGHT = {"direct": 1.00, "downstream": 0.80, "pattern": 0.60}
+
+    # Build lookup: ticket_id → analog dict (for capability overlap)
+    analog_by_id: Dict[str, Dict[str, Any]] = {}
+    if analog_summaries:
+        for a in analog_summaries:
+            tid = a.get("ticket_id") or a.get("id") or ""
+            if tid:
+                analog_by_id[tid] = a
 
     result = []
     for entry in vs_support:
         support_types = entry.get("stream_support_types") or []
         base_score = float(entry.get("best_score") or 0.0)
 
-        # Compute dominant support type
+        # Dominant support type
         type_counts: Dict[str, int] = {}
         for t in support_types:
             type_counts[t] = type_counts.get(t, 0) + 1
@@ -322,7 +336,22 @@ def enrich_historical_candidates(
         weight = _TYPE_WEIGHT.get(dominant_type, 0.70)
         calibrated_score = round(min(1.0, base_score * weight), 4)
 
-        # Build evidence phrases from footprint + supporting evidence
+        # V6: capability overlap across supporting analogs
+        cap_overlap = 0.0
+        if new_card_summary and analog_by_id:
+            for tid in entry.get("supporting_ticket_ids", []):
+                analog = analog_by_id.get(tid)
+                if analog:
+                    overlap = compute_capability_overlap(new_card_summary, analog)
+                    cap_overlap = max(cap_overlap, overlap)
+
+        # Blend type-calibrated score with capability overlap
+        if cap_overlap > 0.0:
+            final_score = round(0.70 * calibrated_score + 0.30 * cap_overlap, 4)
+        else:
+            final_score = calibrated_score
+
+        # Evidence phrases
         evidence_phrases: List[str] = []
         for fp in (entry.get("operational_footprint") or [])[:4]:
             if fp and fp.strip():
@@ -330,11 +359,16 @@ def enrich_historical_candidates(
         for ev in (entry.get("supporting_evidence") or [])[:3]:
             if ev and ev.strip():
                 evidence_phrases.append(f"evidence: {ev}")
+        if cap_overlap >= 0.40:
+            evidence_phrases.append(
+                f"capability-overlap: {cap_overlap:.0%} shared capability tags with supporting analogs"
+            )
 
         result.append({
             **entry,
-            "score": calibrated_score,
+            "score": final_score,
             "dominant_support_type": dominant_type,
+            "capability_overlap_score": cap_overlap,
             "evidence_phrases": evidence_phrases,
         })
 

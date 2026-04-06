@@ -290,6 +290,7 @@ def extract_card_attachment_candidates(
                 "entity_name": vs_name,
                 "score": round(min(_ATTACH_MAX_SCORE, attach_score), 3),
                 "source": "attachment",
+                "sub_source": "attachment_heuristic",
                 "match_reason": (
                     f"card_attachment_signal:{attachment_signal_count}_indicators,"
                     f"cues:{','.join((direct_hits + indirect_hits)[:3])}"

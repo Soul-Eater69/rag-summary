@@ -12,15 +12,15 @@ Flow:
 6. Write capability_map.yaml
 
 Usage:
-    python -m summary_rag.tools.bootstrap_capability_map \\
+    python -m rag_summary.tools.bootstrap_capability_map \\
         --output-dir data \\
         --config-path config/capability_map.yaml
 
     # Dry run (no writes):
-    python -m summary_rag.tools.bootstrap_capability_map --dry-run
+    python -m rag_summary.tools.bootstrap_capability_map --dry-run
 
     # With historical enrichment:
-    python -m summary_rag.tools.bootstrap_capability_map \\
+    python -m rag_summary.tools.bootstrap_capability_map \\
         --ticket-chunks-dir ticket_chunks \\
         --index-dir local_ticket_summary_faiss
 """

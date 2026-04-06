@@ -11,8 +11,8 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
-from summary_rag.models.graph_state import PredictionState
-from summary_rag.ingestion.faiss_indexer import DEFAULT_INDEX_DIR
+from rag_summary.models.graph_state import PredictionState
+from rag_summary.ingestion.faiss_indexer import DEFAULT_INDEX_DIR
 from .nodes import (
     node_clean_and_summarize,
     node_retrieve_analogs,
@@ -133,6 +133,7 @@ def run_prediction_graph(
     min_candidate_floor: int = 8,
     llm=None,
     theme_svc=None,
+    intake_date: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Run the V5 prediction pipeline via LangGraph.
@@ -161,6 +162,7 @@ def run_prediction_graph(
         "_min_candidate_floor": min_candidate_floor,  # type: ignore[typeddict-unknown-key]
         "_llm": llm,  # type: ignore[typeddict-unknown-key]
         "_theme_svc": theme_svc,  # type: ignore[typeddict-unknown-key]
+        "_intake_date": intake_date,  # type: ignore[typeddict-unknown-key]
     }
 
     try:

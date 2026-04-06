@@ -18,6 +18,19 @@ system: |
   - no_evidence: use when evidence is absent, ambiguous, or too generic.
     Prefer this over a weak pattern_inferred.
 
+  V6 source-specific rules:
+  - Bundle co-occurrence (sub_source: bundle_pattern): a VS that consistently
+    co-occurs with another in historical analogs. This is pattern_inferred only.
+    It cannot justify directly_supported regardless of co-occurrence fraction.
+  - Downstream chain (sub_source: downstream_chain): a VS activated downstream of
+    a direct VS in historical analogs. This is pattern_inferred only.
+  - Theme evidence (sub_source: theme or source: theme): theme-cluster match from
+    historical patterns. This is pattern_inferred only.
+  - Attachment-proxy evidence (sub_source: attachment_proxy): derived from analog
+    attachment files, not the new card's own content. This is pattern_inferred only.
+  - Attachment-native evidence (sub_source: attachment_native): from the new card's
+    own parsed sections/tables. This may support directly_supported if explicit.
+
   Rationale rules:
   - Name the specific signal: a function phrase, a KG match, a capability tag,
     an analog ticket ID, or a raw evidence snippet.

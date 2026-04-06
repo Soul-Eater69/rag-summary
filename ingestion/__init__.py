@@ -22,6 +22,7 @@ from .adapters import (
     get_default_embedding,
     get_default_kg,
 )
+from .theme_retrieval_service import FaissThemeRetrievalService
 
 __all__ = [
     "SummaryDoc",
@@ -34,4 +35,5 @@ __all__ = [
     "normalize_function",
     "normalize_functions",
     "FUNCTION_VOCAB",
+    "FaissThemeRetrievalService",
 ]

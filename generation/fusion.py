@@ -60,9 +60,21 @@ def compute_fused_scores(
     for cand in candidates:
         scores = cand.get("source_scores", {})
 
+        # V6: apply quality multiplier to attachment score based on sub_source
+        adj_scores = dict(scores)
+        attachment_sub_sources = cand.get("_attachment_sub_sources") or set()
+        if attachment_sub_sources and adj_scores.get("attachment", 0.0) > 0.0:
+            if "attachment_native" in attachment_sub_sources:
+                multiplier = 1.00
+            elif "attachment_proxy" in attachment_sub_sources:
+                multiplier = 0.75
+            else:  # attachment_heuristic or unknown
+                multiplier = 0.55
+            adj_scores["attachment"] = round(adj_scores["attachment"] * multiplier, 4)
+
         # Weighted sum
         weighted = sum(
-            w.get(source, 0.0) * scores.get(source, 0.0)
+            w.get(source, 0.0) * adj_scores.get(source, 0.0)
             for source in ALL_SOURCES
         )
 
@@ -79,7 +91,11 @@ def compute_fused_scores(
         # Penalty for no evidence
         penalty = no_evidence_penalty if active_count == 0 else 0.0
 
-        fused = max(0.0, min(1.0, weighted + diversity + penalty))
+        # V6: theme promotion bonus — boost candidates with strong theme signal
+        theme_score = scores.get("theme", 0.0)
+        theme_bonus = 0.04 if theme_score >= 0.50 else 0.0
+
+        fused = max(0.0, min(1.0, weighted + diversity + penalty + theme_bonus))
         cand["fused_score"] = round(fused, 4)
 
         # Support confidence: blend of fused score and diversity signal

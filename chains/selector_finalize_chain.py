@@ -21,13 +21,13 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
-from summary_rag.ingestion.adapters import (
+from rag_summary.ingestion.adapters import (
     LLMService,
     get_default_llm,
     structured_generate,
 )
-from summary_rag.models.candidate_judgment import CandidateJudgment, VerificationResult
-from summary_rag.models.selection import SelectionResult, SupportedStream, UnsupportedStream
+from rag_summary.models.candidate_judgment import CandidateJudgment, VerificationResult
+from rag_summary.models.selection import SelectionResult, SupportedStream, UnsupportedStream
 from .prompt_loader import load_prompt, render_prompt
 from .selector_verify_chain import _format_new_card_summary
 
