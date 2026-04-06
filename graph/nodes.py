@@ -177,16 +177,25 @@ def _inject_footprint_patterns(
             continue
         fraction = bp.get("co_occurrence_fraction", 0.0)
         count = bp.get("co_occurrence_count", 0)
+        snippet_score = round(0.20 * fraction, 4)
         entry.setdefault("evidence_snippets", []).append({
             "source": SOURCE_HISTORICAL,
             "snippet": (
                 f"Bundle co-occurrence: appears with '{primary}' in "
                 f"{fraction:.0%} of similar analogs ({count} tickets)"
             ),
-            "score": round(0.20 * fraction, 4),
+            "score": snippet_score,
             "sub_source": "bundle_pattern",
         })
         entry["bundle_pattern_count"] = entry.get("bundle_pattern_count", 0) + 1
+        # V6: high co-occurrence fraction also boosts the historical source score
+        # so fusion arithmetic reflects the pattern, not just the LLM prompt context
+        if fraction >= 0.60:
+            old_score = entry.get("source_scores", {}).get(SOURCE_HISTORICAL, 0.0)
+            boost = round(0.12 * fraction, 4)  # up to +0.084 at fraction=0.70
+            entry.setdefault("source_scores", {})[SOURCE_HISTORICAL] = min(
+                1.0, old_score + boost
+            )
 
     for dc in downstream_chains:
         down_vs = (dc.get("downstream_vs") or "").strip()
@@ -206,6 +215,11 @@ def _inject_footprint_patterns(
             "sub_source": "downstream_chain",
         })
         entry["downstream_chain_count"] = entry.get("downstream_chain_count", 0) + 1
+        # V6: downstream chain presence always adds a small historical score boost
+        old_score = entry.get("source_scores", {}).get(SOURCE_HISTORICAL, 0.0)
+        entry.setdefault("source_scores", {})[SOURCE_HISTORICAL] = min(
+            1.0, old_score + 0.08
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -387,7 +401,12 @@ def node_retrieve_themes(state: PredictionState) -> Dict[str, Any]:
                 logger.warning("[node_retrieve_themes] Auto-load failed: %s", _exc)
                 theme_svc = None
     if theme_svc is None:
-        theme_svc = get_default_theme()
+        # Final fallback: keyword-based theme service — always active, no setup needed
+        from rag_summary.ingestion.keyword_theme_service import KeywordThemeService
+        theme_svc = KeywordThemeService()
+        logger.debug(
+            "[node_retrieve_themes] No theme index found — using KeywordThemeService fallback"
+        )
 
     from rag_summary.ingestion import build_retrieval_text
     query = build_retrieval_text(new_card_summary).strip() or cleaned_text
