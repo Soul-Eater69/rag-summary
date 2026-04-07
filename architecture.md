@@ -1,11 +1,11 @@
 # `rag-summary` Architecture
-## Current live architecture of the repo
+## Complete detailed explanation of the current live repo architecture
 
 ## 1. Purpose
 
-`rag-summary` is a graph-driven value-stream prediction system for healthcare idea cards and related artifacts.
+`rag-summary` is a graph-driven, evidence-fusion system for predicting healthcare value streams from a new idea card, PPT-like text, or related artifacts.
 
-Its job is to take a new idea card or PPT-like text, retrieve and synthesize evidence from multiple sources, and produce a structured prediction of value streams in three classes:
+Its job is to take a new idea card or PPT-like input, retrieve and synthesize evidence from multiple sources, and produce a structured prediction of value streams in three classes:
 
 - `directly_supported`
 - `pattern_inferred`
@@ -25,55 +25,61 @@ The current repo is no longer a simple summary-first RAG prototype. It is now a 
 
 ---
 
-## 2. High-level system view
+## 2. What problem the system solves
+
+The system solves this problem:
+
+> Given a new partially observed initiative, predict which value streams are directly supported by the current intake-time evidence, which value streams are only pattern-inferred from historical and thematic context, and which streams do not currently have enough evidence.
+
+This framing matters because a new idea card is usually incomplete.
+
+A new card may include:
+- business intent
+- top-level workflow changes
+- some actor references
+- some artifact text
+- maybe some embedded tables or sections
+
+But it often does not fully expose all downstream implementation streams.
+
+So the system must combine:
+- what the card explicitly says
+- what card-local attachment structure suggests
+- what similar historical tickets looked like
+- what canonical value streams match semantically
+- what capability clusters imply
+- what theme clusters imply
+- what historical bundles/downstream patterns repeatedly occur
+
+That is why the architecture is multi-stage and evidence-centric.
+
+---
+
+## 3. High-level architecture
 
 ```mermaid
 flowchart TD
-    A[New idea card / PPT text] --> B[Clean and summarize]
-    B --> C[Historical analog retrieval]
-    C --> D[Historical VS evidence + patterns]
-    D --> E[KG candidate retrieval]
-    E --> F[Theme retrieval]
-    F --> G[Capability mapping]
-    G --> H[Card-level candidate extraction]
-    H --> I[Raw evidence retrieval]
-    I --> J[Attachment parsing]
-    J --> K[CandidateEvidence build]
-    K --> L[Fused ranking]
+    A[New card / PPT text] --> B[Clean and summarize]
+    B --> C[Retrieve historical analogs]
+    C --> D[Collect historical VS support + patterns]
+    D --> E[Retrieve KG candidates]
+    E --> F[Retrieve theme candidates]
+    F --> G[Run capability mapping]
+    G --> H[Extract card-native candidates]
+    H --> I[Collect raw historical evidence]
+    I --> J[Parse attachments]
+    J --> K[Build CandidateEvidence]
+    K --> L[Fuse scores]
     L --> M[Pass 1 verify]
     M --> N[Pass 2 finalize]
     N --> O[Final structured output]
 ```
 
----
-
-## 3. Core design principles
-
-The current system follows these principles:
-
-1. **Evidence-first, not label-first**  
-   The runtime is built around candidate evidence, not free-form stream guessing.
-
-2. **Multiple sources, one merged candidate object**  
-   All sources eventually flow into `CandidateEvidence`.
-
-3. **Direct vs pattern must be separated**  
-   The final output distinguishes directly supported signals from pattern-inferred signals.
-
-4. **History should act as initiative-pattern memory**  
-   Historical tickets are not just similar summaries; they also provide footprint and downstream evidence.
-
-5. **Capability mapping repairs recall**  
-   Semantic retrieval alone is not enough for downstream or implied streams.
-
-6. **Graph orchestration is the source of truth**  
-   The real runtime is defined in the graph layer, not in a monolithic imperative pipeline.
+This is the current live runtime architecture.
 
 ---
 
-## 4. Repository structure
-
-At a high level, the repo is organized into:
+## 4. Repository structure and ownership
 
 ```text
 rag-summary/
@@ -93,32 +99,54 @@ rag-summary/
 
 ### Main ownership by area
 
-- `pipeline.py`  
-  Public entrypoint and output shaping
+#### `pipeline.py`
+Public API wrapper and output shaping.
 
-- `graph/`  
-  Orchestration and conditional routing
+#### `graph/`
+Real orchestration and conditional routing.
 
-- `models/`  
-  State and contract definitions
+#### `models/`
+State and structured contracts passed between nodes and chains.
 
-- `ingestion/`  
-  Summary generation, normalization, index build, adapters, attachment parsing
+#### `ingestion/`
+Input shaping and memory preparation:
+- summary generation
+- function normalization
+- FAISS index build
+- adapters and protocols
+- attachment parsing
+- theme index/retrieval helpers
 
-- `retrieval/`  
-  Historical analog lookup, KG lookup, raw evidence retrieval, pattern detection
+#### `retrieval/`
+Evidence retrieval and historical analysis:
+- historical analog retrieval
+- KG retrieval
+- raw evidence lookup
+- historical VS support
+- bundle patterns
+- downstream chains
 
-- `generation/`  
-  Capability mapping, candidate evidence build, fusion, attachment-native candidates, card candidates
+#### `generation/`
+Candidate construction and scoring logic:
+- capability mapping
+- card-native candidates
+- attachment-native candidates
+- candidate evidence
+- fusion
 
-- `chains/`  
-  LLM verification and finalization chains
+#### `chains/`
+LLM chains:
+- summary generation
+- pass-1 verification
+- pass-2 finalization
 
-- `config/`  
-  Capability map and related config
+#### `config/`
+Runtime configuration and indices:
+- capability map
+- theme index and related config
 
-- `tools/`  
-  Offline build/bootstrap utilities
+#### `tools/`
+Offline utilities such as capability-map bootstrap.
 
 ---
 
@@ -128,22 +156,20 @@ rag-summary/
 
 `pipeline.py` is intentionally thin.
 
-Its responsibilities are:
-
+Its job is:
 - call `run_prediction_graph(...)`
 - optionally persist debug artifacts
 - normalize the final public return shape
 
-It is **not** the place where orchestration logic lives anymore.
+It is **not** where orchestration logic lives anymore.
 
 ### Public output shape
 
-The wrapper returns:
-
+The wrapper returns fields like:
 - `directly_supported`
 - `pattern_inferred`
 - `no_evidence`
-- `selected_value_streams` (compat union)
+- `selected_value_streams`
 - `rejected_candidates`
 - `new_card_summary`
 - `analog_tickets`
@@ -154,13 +180,24 @@ The wrapper returns:
 - `warnings`
 - `timing`
 
+### Why this design is good
+
+This separation keeps:
+- business logic in nodes
+- runtime sequencing in the graph
+- public API shape in one place
+
+That makes the repo easier to evolve without breaking callers.
+
 ---
 
-## 6. Runtime orchestration
+## 6. The graph is the real runtime
 
 ## `graph/build_prediction_graph.py`
 
-The actual runtime flow is defined as a LangGraph state graph, with a sequential fallback when LangGraph is unavailable.
+This file defines the actual runtime execution graph.
+
+It uses LangGraph when available and provides a sequential fallback when LangGraph is not installed.
 
 ### Current node sequence
 
@@ -198,13 +235,12 @@ flowchart TD
 
 ### Conditional routing
 
-`graph/edges.py` provides routing logic for:
-
-- stopping early if input text becomes empty after cleaning
+`graph/edges.py` provides routing for:
+- stopping early if the cleaned text is empty
 - skipping VS evidence collection if no analogs are found
-- skipping pass-2 finalization if pass-1 verification failed completely
+- skipping pass-2 finalization if pass-1 verification fails completely
 
-This makes the graph robust while still preserving the same overall architecture.
+This keeps the runtime robust while preserving the overall architecture.
 
 ---
 
@@ -212,22 +248,22 @@ This makes the graph robust while still preserving the same overall architecture
 
 ## `models/graph_state.py`
 
-The graph uses a `TypedDict` state object called `PredictionState`.
+The graph passes data between nodes using a `TypedDict` called `PredictionState`.
 
-This state is the backbone of the whole runtime.
+This is the central runtime state contract.
 
-### Major state groups
+### Main state groups
 
-#### Inputs
+#### Raw and cleaned input
 - `raw_text`
 - `cleaned_text`
 - `allowed_value_stream_names`
 - `top_k_analogs`
 
-#### New-card understanding
+#### Structured new-card understanding
 - `new_card_summary`
 
-#### Historical retrieval
+#### Historical analog retrieval
 - `analog_tickets`
 - `historical_value_stream_support`
 
@@ -241,7 +277,7 @@ This state is the backbone of the whole runtime.
 - `bundle_patterns`
 - `downstream_chains`
 
-#### Card/attachment stages
+#### Card-native and attachment stages
 - `summary_candidates`
 - `chunk_candidates`
 - `card_attachment_candidates`
@@ -249,15 +285,19 @@ This state is the backbone of the whole runtime.
 - `attachment_docs`
 - `attachment_native_candidates`
 
-#### Evidence + scoring
+#### Raw historical evidence
 - `raw_evidence`
 - `attachment_candidates`
+
+#### Evidence and scoring
 - `candidate_evidence`
 - `fused_candidates`
 
-#### Verification/final output
+#### LLM decision layers
 - `verify_judgments`
 - `selection_result`
+
+#### Final outputs
 - `directly_supported`
 - `pattern_inferred`
 - `no_evidence`
@@ -269,7 +309,8 @@ This state is the backbone of the whole runtime.
 - `warnings`
 - `timing`
 
-#### Internal/private injected config
+#### Private injected config keys
+The graph also uses private runtime keys such as:
 - `_index_dir`
 - `_ticket_chunks_dir`
 - `_top_kg_candidates`
@@ -279,555 +320,668 @@ This state is the backbone of the whole runtime.
 - `_llm`
 - `_theme_svc`
 - `_intake_date`
-- optional additional runtime-private values
+
+These are internal runtime controls, not part of the public API.
 
 ---
 
-## 8. New-card understanding layer
+## 8. End-to-end runtime flow in plain English
 
-## `ingestion/summary_generator.py`
+Before diving into every node, here is the full flow in plain English.
 
-This is the structured semantic understanding layer.
-
-It does not only summarize; it builds a structured document describing the new card.
-
-### Summary fields produced
-
-Typical fields include:
-
-- `short_summary`
-- `business_goal`
-- `actors`
-- `direct_functions_raw`
-- `implied_functions_raw`
-- `direct_functions_canonical`
-- `implied_functions_canonical`
-- `change_types`
-- `domain_tags`
-- `capability_tags`
-- `operational_footprint`
-
-This is the representation used by downstream retrieval and reasoning.
+1. Clean the input text and build a structured semantic summary.
+2. Retrieve similar historical tickets from the FAISS summary index.
+3. Convert those analogs into historical support and historical pattern signals.
+4. Retrieve canonical KG candidates.
+5. Retrieve theme-derived candidates when the environment supports it.
+6. Apply capability mapping to recover implied or downstream streams.
+7. Extract candidates directly from the card itself.
+8. Retrieve raw snippets from shortlisted historical tickets.
+9. Parse attachment-like content into structured sections.
+10. Merge all candidate sources into unified evidence objects.
+11. Rank those evidence objects with source-aware fusion.
+12. Run pass-1 LLM verification.
+13. Run pass-2 LLM finalization.
+14. Return the final three-class output.
 
 ---
 
-## 9. Function normalization layer
+## 9. Node-by-node explanation
 
-## `ingestion/function_normalizer.py`
+## 9.1 `clean_and_summarize`
 
-The function normalization layer keeps downstream reasoning stable.
+### What it does
+This is the first node in the graph.
+
+It:
+1. cleans the raw card text,
+2. checks whether anything meaningful remains,
+3. runs structured summary generation,
+4. falls back to a deterministic keyword-based summary if LLM generation fails.
+
+### Main inputs
+- `raw_text`
+
+### Main outputs
+- `cleaned_text`
+- `new_card_summary`
+- optional `errors`
+- optional `warnings`
 
 ### Why it exists
+Everything downstream needs a cleaner, structured representation than raw text.
 
-Raw LLM output is too variable.  
-For example:
-- "vendor eligibility handoff"
-- "partner setup"
-- "provider onboarding"
+This node creates the semantic representation used by:
+- FAISS analog retrieval
+- KG retrieval
+- capability mapping
+- card-native candidate extraction
 
-may all need to normalize into more stable canonical functions.
-
-### Current role
-
-The normalizer:
-- maintains a canonical vocabulary
-- uses trigger-token rules
-- deduplicates outputs
-- maps raw direct/implied phrases to canonical categories
-
-### Examples of canonical functions
-
-- product setup
-- outreach
-- reporting
-- vendor integration
-- billing
-- payment
-- onboarding
-- portal access
-- request handling
-- quote/rating
-- care workflow
-- compliance
-- analytics
-- eligibility
-- claims processing
-- enrollment
-- authorization
-- grievance/appeals
-- pharmacy
-- risk adjustment
-- credentialing
-- network management
-- data migration
-- system integration
+### Why fallback exists
+Because the system should degrade gracefully if the summary chain fails.
 
 ---
 
-## 10. Historical store
+## 9.2 `retrieve_analogs`
 
-## `ingestion/faiss_indexer.py`
+### What it does
+This node queries the FAISS historical summary index.
 
-The historical FAISS store is one of the strongest parts of the repo.
+It uses the new-card summary to retrieve top-k historical analog tickets.
 
-It is no longer a plain summary index.  
-It acts as a richer historical initiative memory.
+### Main inputs
+- `new_card_summary`
+- `_index_dir`
+- `top_k_analogs`
 
-### Historical document schema includes
+### Main outputs
+- `analog_tickets`
 
-- ticket metadata
-- summary fields
-- raw/canonical direct functions
-- raw/canonical implied functions
-- capability tags
-- operational footprint
-- mapped value streams
-- stream support type
-- supporting evidence
+### Why it exists
+This is the historical memory entrypoint.
 
-### Embedded retrieval text includes
+The system needs to know:
+- what similar historical initiatives looked like
+- what value streams they mapped to
+- what capability and operational footprint they carried
 
-- title
-- summary
-- business goal
-- actors
-- direct functions
-- implied functions
-- capability tags
-- operational footprint
-- mapped value streams
-
-### Why this matters
-
-This lets historical retrieval support:
-- semantic analogy
-- capability overlap
-- footprint overlap
-- downstream pattern memory
-
-not just surface-level text similarity.
+This is the first step in bringing history into runtime reasoning.
 
 ---
 
-## 11. Retrieval layer
+## 9.3 `collect_vs_evidence`
 
-## `retrieval/summary_retriever.py` and related retrieval functions
+### What it does
+This node transforms the analog tickets into structured historical support.
 
-The retrieval layer has several responsibilities.
+It:
+- aggregates value-stream support from analogs
+- detects `bundle_patterns`
+- detects `downstream_chains`
 
-### A. Historical analog retrieval
-Find top historical summary documents from FAISS.
+### Main inputs
+- `analog_tickets`
+- `_ticket_chunks_dir`
+- `allowed_value_stream_names`
 
-### B. Raw evidence retrieval
-Pull raw chunks/snippets for shortlisted tickets.
-
-### C. KG candidate retrieval
-Retrieve canonical VS candidates from the KG/index layer.
-
-### D. Historical support aggregation
-Aggregate value-stream support from analog tickets.
-
-### E. Historical pattern detection
-Detect:
+### Main outputs
+- `historical_value_stream_support`
 - `bundle_patterns`
 - `downstream_chains`
 
-These are key V6-leaning features.
+### Why it exists
+Retrieving analogs is not enough.
 
-### Historical pattern concept
+The system also needs to know:
+- which streams repeatedly appeared in similar tickets
+- which streams often co-occur
+- which streams tend to appear downstream of others
 
-```mermaid
-flowchart LR
-    A[Historical analogs] --> B[VS support aggregation]
-    B --> C[Bundle pattern detection]
-    B --> D[Downstream chain detection]
-    C --> E[Historical pattern evidence]
-    D --> E
-```
-
-This allows history to act as more than a label memory.
+This node converts analog retrieval into usable historical reasoning signals.
 
 ---
 
-## 12. Theme retrieval
+## 9.4 `retrieve_kg`
 
-## `ingestion/adapters.py` + `ingestion/theme_retrieval_service.py` + `graph/nodes.py`
+### What it does
+This node retrieves canonical value-stream candidates from the KG/index layer.
 
-Theme retrieval is now a real runtime path.
+It builds retrieval text from the structured summary and falls back to cleaned text if needed.
 
-### Current design
+### Main inputs
+- `new_card_summary`
+- `cleaned_text`
+- `_top_kg_candidates`
+- `allowed_value_stream_names`
 
-- `ThemeRetrievalService` is defined as a protocol in the adapter layer.
-- Default fallback remains `_NoopThemeService`.
-- `node_retrieve_themes` can auto-discover and instantiate a real `FaissThemeRetrievalService` if a theme FAISS index exists.
-- Theme candidates then become a real source in `CandidateEvidence`.
+### Main outputs
+- `kg_candidates`
 
-### Theme role
+### Why it exists
+The historical layer tells you what happened in similar past initiatives.
 
-Theme evidence is meant to be:
-- a pattern-oriented source
-- weaker than direct card evidence
-- stronger than nothing when legitimate intake-time themes exist
+The KG layer tells you what official/canonical value streams semantically match the current initiative.
 
-### Important constraint
-
-Theme is still environment-dependent:
-- if theme index/service exists, it is active
-- otherwise it gracefully degrades to noop behavior
+This is the canonical grounding layer.
 
 ---
 
-## 13. Capability mapping
+## 9.5 `retrieve_themes`
 
-## `generation/capability_mapper.py` + `config/capability_map.yaml`
+### What it does
+This node retrieves theme-derived candidates.
 
-Capability mapping is one of the key recall-repair layers.
+It:
+- builds a query from summary/cleaned text,
+- uses an injected theme service if present,
+- otherwise tries to auto-discover a local FAISS theme index,
+- otherwise falls back safely to noop behavior.
 
-### Purpose
+### Main inputs
+- `new_card_summary`
+- `cleaned_text`
+- `_theme_svc`
+- `_intake_date`
+- `allowed_value_stream_names`
 
-Semantic retrieval alone misses:
-- downstream streams
-- implied operational streams
-- partner/onboarding streams
-- billing/order-to-cash streams
-- request-resolution streams
+### Main outputs
+- `theme_candidates`
 
-Capability mapping bridges business cues to likely value streams.
+### Why it exists
+Theme is a pattern-level evidence source.
 
-### Inputs
+It helps when value streams are implied by:
+- recurring grouped work
+- thematic clusters
+- initiative patterns that are not explicit in direct text
 
-- new-card summary
-- cleaned text
-- historical VS support
-- KG candidates
-- allowed VS names
+### Important limitation
+Theme is real, but environment-dependent:
+- if a theme backend/index is available, it contributes
+- otherwise the runtime degrades gracefully
 
-### Core logic
+---
 
-The capability mapper:
-- loads clusters from `capability_map.yaml`
-- checks direct cues
-- checks indirect cues
-- checks canonical functions
-- applies weights and thresholds
-- promotes streams
-- emits capability candidates
-- enriches KG candidates
+## 9.6 `map_capabilities`
 
-### Capability map structure
+### What it does
+This node applies capability mapping using the YAML capability map.
 
-The YAML includes clusters such as:
-- compliance_privacy_audit
-- enterprise_risk_governance
-- vendor_partner_onboarding
-- billing_order_to_cash
-- enrollment_quoting
-- product_launch_commercialization
-- member_engagement_outreach
-- care_management_clinical
-- claims_adjudication
-- portal_request_resolution
-- analytics_reporting
-- provider_network
-- leads_opportunities
-
-Each cluster typically has:
-- description
+It checks:
 - direct cues
 - indirect cues
 - canonical functions
-- promoted streams
-- related streams
-- weight
-- minimum signal threshold
+
+Then it determines which capability clusters fire and which value streams should be promoted or enriched.
+
+### Main inputs
+- `new_card_summary`
+- `cleaned_text`
+- `historical_value_stream_support`
+- `kg_candidates`
+- `allowed_value_stream_names`
+
+### Main outputs
+- `capability_mapping`
+- `enriched_candidates`
+
+### Why it exists
+Semantic retrieval alone misses many downstream or implied streams.
+
+Capability mapping is the recall-repair layer.
+
+It helps recover streams related to:
+- onboarding
+- billing/order-to-cash
+- request handling
+- compliance
+- partner workflows
+- analytics/reporting
 
 ---
 
-## 14. Card-native candidate extraction
+## 9.7 `extract_card_candidates`
 
-## `generation/card_candidates.py`
+### What it does
+This node extracts candidate signals directly from the new card and immediate context.
 
-This layer generates candidates directly from the new card and its immediate local evidence.
-
-### Current candidate sources produced
-
+It builds:
 - `summary_candidates`
 - `chunk_candidates`
 - `card_attachment_candidates`
 - `historical_footprint_candidates`
 
-### Why this matters
+### Main inputs
+- `new_card_summary`
+- `cleaned_text`
+- `analog_tickets`
+- `allowed_value_stream_names`
 
-Without this layer, the runtime would over-rely on:
-- KG retrieval
+### Main outputs
+- `summary_candidates`
+- `chunk_candidates`
+- `card_attachment_candidates`
+- `historical_footprint_candidates`
+
+### Why it exists
+Without this node, the runtime would over-rely on:
 - historical analogs
+- KG retrieval
 - capability mapping
 
-This layer ensures the new card itself contributes meaningful candidate evidence.
+This node ensures the new card itself remains a first-class evidence source.
 
 ---
 
-## 15. Attachment parsing and attachment-native candidates
+## 9.8 `collect_raw_evidence`
 
-## `ingestion/attachment_parser.py` + `generation/attachment_candidates.py`
+### What it does
+This node collects raw evidence snippets from top historical analog tickets.
 
-This is one of the most important newer additions.
+It:
+- selects top analog ticket IDs,
+- builds a query,
+- retrieves raw chunks/snippets from `ticket_chunks`,
+- converts those into proxy attachment candidates.
 
-### Current parser behavior
+### Main inputs
+- `analog_tickets`
+- `_ticket_chunks_dir`
+- `_max_raw_evidence_tickets`
+- `new_card_summary`
+- `cleaned_text`
 
-The parser is text-level. It does **not** parse binary files directly.  
-It works on:
-- already extracted attachment text
-- or attachment-like structure inside cleaned card text
+### Main outputs
+- `raw_evidence`
+- `attachment_candidates`
 
-### Section types detected
+### Why it exists
+Historical analog summaries are useful, but sometimes you need raw snippets.
 
-- exhibit
-- appendix
-- table
-- budget
-- scope
-- roadmap
+This node adds:
+- verifier context
+- raw evidence traceability
+- analog-proxy attachment evidence
+
+---
+
+## 9.9 `parse_attachments`
+
+### What it does
+This node parses attachment-like content into structured sections.
+
+It supports two modes:
+
+#### Mode 1 — explicit attachment contents
+If `_attachment_contents` is provided, it parses those attachment texts.
+
+#### Mode 2 — fallback from card body
+If no explicit attachments are provided, it scans the cleaned card text for attachment-like sections.
+
+It uses `AttachmentParser` and then generates:
+- `attachment_docs`
+- `attachment_native_candidates`
+
+### Main inputs
+- `cleaned_text`
+- `_attachment_contents`
+- `allowed_value_stream_names`
+
+### Main outputs
+- `attachment_docs`
+- `attachment_native_candidates`
+
+### Why it exists
+Artifact structure often reveals evidence that summaries miss:
+- budgets
 - requirements
-- heading
-- body
+- scopes
+- roadmaps
+- tables
+- appendices
+- exhibits
 
-### Current attachment-native candidate generation
+This node turns attachment-like structure into first-class evidence.
 
-`attachment_candidates.py` converts parsed sections into VS candidates using:
-- capability-map cue scanning
-- section-type-aware score ceilings
-- content-signal extraction
-
-Examples of special handling:
-- budget sections → financial/billing/payment signals
-- scope/requirements → action-verb based functional signals
-- tables → multi-domain term signals
-
-### Important current limitation
-
-This is still text-driven and not binary-native.  
-Real PDFs/XLSX/DOCX/PPTX still require upstream text extraction before entering the parser.
+### Important limitation
+This parser is still **text-level**, not binary-native.
+Real PDF/XLSX/DOCX/PPTX parsing still requires upstream extraction before entering this node.
 
 ---
 
-## 16. CandidateEvidence
+## 9.10 `build_evidence`
 
-## `generation/candidate_evidence.py`
+### What it does
+This is the core evidence-fusion node.
 
-`CandidateEvidence` is the central runtime artifact.
+It takes all candidate sources and merges them into unified `CandidateEvidence` objects.
 
-All candidate sources eventually flow here.
+### Sources merged here
+- KG candidates
+- historical candidates
+- capability candidates
+- chunk candidates
+- summary candidates
+- theme candidates
+- card attachment candidates
+- attachment-native candidates
+- analog-proxy attachment candidates
+- historical footprint candidates
 
-### Current sources merged
+### Additional work done here
+- enriches historical support before merge
+- injects summary-source candidates
+- injects bundle-pattern snippets
+- injects downstream-chain snippets
 
-- KG
-- historical
-- capability
-- chunk
-- attachment
-- summary
-- theme
+### Main outputs
+- `candidate_evidence`
 
-### Per-candidate fields include
+### Why it exists
+This is where the system becomes a true evidence system.
 
-- `candidate_id`
-- `candidate_name`
-- `source_scores`
-- `evidence_sources`
-- `evidence_snippets`
-- `fused_score`
-- `support_confidence`
-- `source_diversity_count`
-- `support_type`
-- `contradictions`
+Before this node, there are many partial candidate lists.
+After this node, there is one unified object per candidate containing:
+- source scores
+- evidence snippets
+- support type
+- source diversity
+- placeholders for fused score/confidence
 
-### Support types
-
-The runtime classifies candidates into support types such as:
-- `direct`
-- `pattern`
-- `mixed`
-- `none`
-
-### Additional evidence injection
-
-Historical bundle/downstream pattern snippets are injected during evidence build, so `CandidateEvidence` now carries more than plain source scores.
+This is the architectural center of the runtime.
 
 ---
 
-## 17. Fused scoring
+## 9.11 `fuse_scores`
 
-## `generation/fusion.py`
+### What it does
+This node scores `CandidateEvidence` objects using source-aware fusion.
 
-The fusion layer applies source-aware ranking.
+It:
+- applies source weights
+- adds diversity bonus
+- applies zero-evidence penalties
+- applies a candidate floor
 
-### Current behavior
+### Main inputs
+- `candidate_evidence`
+- `_min_candidate_floor`
 
-- source-specific weights
-- diversity bonus
-- zero-evidence penalty
-- candidate-floor guardrail
+### Main outputs
+- `fused_candidates`
 
-### Example default source weights
+### Why it exists
+The runtime should not rely on raw source order or loose candidate lists.
 
-- chunk: 0.20
-- summary: 0.15
-- attachment: 0.18
-- theme: 0.08
-- kg: 0.18
-- historical: 0.12
-- capability: 0.09
-
-### Why this matters
-
-This means ranking is explicit and inspectable rather than being hidden in flow order.
+This node turns evidence objects into ranked candidates with explicit scores.
 
 ---
 
-## 18. Verification and finalization
+## 9.12 `verify_candidates`
 
-## `chains/selector_verify_chain.py` + `chains/selector_finalize_chain.py` + graph nodes
+### What it does
+This is Pass 1 of the LLM decision process.
 
-The repo now uses a two-stage decision process.
+It sends:
+- the new-card summary
+- analog tickets
+- fused candidates
+- raw evidence
 
-### Pass 1 — verify
-Per-candidate evidence verification
+into `SelectorVerifyChain`.
 
-### Pass 2 — finalize
-Finalize into:
-- directly supported
-- pattern inferred
-- no evidence
+This produces:
+- `verify_judgments`
 
-### Why this is correct
+### Main outputs
+- `verify_judgments`
 
-This avoids a single flat “guess all streams” step and better matches the real problem:
-- some streams are explicit/direct
-- some streams are pattern-supported
-- some streams are not actually justified
+### Why it exists
+This stage asks:
+- is this candidate actually supported?
+- what type of support does it have?
+- is the evidence direct, pattern-like, mixed, or weak?
 
----
-
-## 19. Offline tooling
-
-## `tools/bootstrap_capability_map.py`
-
-The repo includes offline tooling for capability-map bootstrap.
-
-### Current role
-
-- fetch or build VS corpus
-- draft capability clusters
-- generate coverage artifacts
-- write `capability_map.yaml`
-
-### Current maturity
-
-Useful, but still more of a bootstrap path than a full evidence-enriched ontology pipeline.
+It is the per-candidate evidence check stage.
 
 ---
 
-## 20. External dependency boundary
+## 9.13 `finalize_selection`
 
-## `ingestion/adapters.py`
+### What it does
+This is Pass 2 of the LLM decision process.
 
-The adapter layer is improved compared to earlier versions.
+It takes:
+- `verify_judgments`
+- `fused_candidates`
+- `new_card_summary`
 
-### Current protocols include
+and runs `SelectorFinalizeChain`.
 
-- `LLMService`
-- `StructuredLLMService`
-- `EmbeddingService`
-- `KGRetrievalService`
-- `ThemeRetrievalService`
-- `SummaryIndexService`
-- `RawEvidenceService`
+This produces a `SelectionResult` containing:
+- `directly_supported`
+- `pattern_inferred`
+- `no_evidence`
 
-### Current reality
+### Why it exists
+Verification and final decision are not the same task.
 
-This improves testability and design cleanliness, but the default factories still lazy-import internal services for:
-- LLM generation
-- embeddings
-- KG retrieval
+Pass 1 checks candidates individually.  
+Pass 2 makes the final structured decision.
 
-So the repo is cleaner than before, but still not fully self-contained.
-
----
-
-## 21. Current strengths
-
-The current strongest aspects of the repo are:
-
-1. **Graph-based runtime orchestration**
-2. **Rich historical FAISS store**
-3. **Structured new-card understanding**
-4. **Capability mapping**
-5. **CandidateEvidence as the core runtime contract**
-6. **Real attachment parsing path**
-7. **Historical bundle/downstream pattern injection**
-8. **Two-pass final decision structure**
+That separation is a major strength of the current architecture.
 
 ---
 
-## 22. Current weaknesses / limitations
+## 9.14 `finalize_output`
 
-The main remaining gaps are:
+### What it does
+This node shapes the final public result.
 
-### A. Theme is still environment-dependent
-Theme is real, but not guaranteed active in every runtime environment.
+It:
+- rehydrates `selection_result` if needed
+- falls back to verify judgments if final selection is empty
+- deduplicates entity names
+- builds compatibility `selected_value_streams`
+- builds `rejected_candidates`
+
+### Main outputs
+- `directly_supported`
+- `pattern_inferred`
+- `no_evidence`
+- `selected_value_streams`
+- `rejected_candidates`
+
+### Why it exists
+The public API needs:
+- stable output
+- compatibility for older consumers
+- clean final buckets
+- deduplication
+- graceful fallback if pass-2 failed
+
+---
+
+## 10. Historical memory architecture
+
+The historical layer is one of the most important parts of the repo.
+
+It is not just:
+- “retrieve similar old tickets”
+
+It is now closer to:
+- “retrieve similar initiatives and extract their support patterns”
+
+### Historical flow
+
+```mermaid
+flowchart LR
+    A[New-card summary] --> B[FAISS analog retrieval]
+    B --> C[Historical VS support]
+    B --> D[Capability overlap]
+    B --> E[Operational footprint]
+    B --> F[Bundle patterns]
+    B --> G[Downstream chains]
+    C --> H[Historical evidence]
+    D --> H
+    E --> H
+    F --> H
+    G --> H
+```
+
+This is why the historical store is so important.
+
+---
+
+## 11. CandidateEvidence as the center of the runtime
+
+`CandidateEvidence` is the central runtime contract.
+
+Everything important eventually flows into it.
+
+### Conceptual structure
+
+```mermaid
+flowchart TD
+    A[KG candidates] --> G[CandidateEvidence]
+    B[Historical support] --> G
+    C[Capability candidates] --> G
+    D[Chunk candidates] --> G
+    E[Attachment candidates] --> G
+    F[Theme candidates] --> G
+    H[Summary candidates] --> G
+```
+
+Each final candidate contains:
+- who the candidate is
+- which sources support it
+- what snippets support it
+- what support type it appears to have
+- how diverse the support is
+- what its final fused score is
+
+This is why the architecture is now evidence-first.
+
+---
+
+## 12. Data stores and persistent assets
+
+The repo uses several persistent or semi-persistent assets.
+
+### A. FAISS summary index
+Stores rich historical summary documents.
+
+### B. Ticket chunks
+Used for retrieving raw historical evidence snippets.
+
+### C. Capability map YAML
+Defines capability clusters and promoted streams.
+
+### D. Theme index
+Optional FAISS index for theme retrieval.
+
+### E. Debug artifact directory
+Optional output path for inspecting one pipeline run.
+
+---
+
+## 13. Debug artifacts
+
+When debug output is enabled, the pipeline can persist runtime artifacts such as:
+
+- `new_card_summary.json`
+- `analog_tickets.json`
+- `vs_support.json`
+- `kg_candidates.json`
+- `capability_mapping.json`
+- `candidate_evidence.json`
+- `fused_candidates.json`
+- `raw_evidence.json`
+- `selection_result.json`
+- `bundle_patterns.json`
+- `downstream_chains.json`
+- `theme_candidates.json`
+- `eval_log.json`
+
+These are useful for debugging, architecture validation, and inspection of one run.
+
+---
+
+## 14. Current strengths
+
+The strongest parts of the current repo are:
+
+1. graph-based runtime orchestration is real
+2. public pipeline wrapper is thin and correct
+3. structured summary generation is strong
+4. function normalization is solid
+5. historical FAISS memory is rich
+6. capability mapping is substantive
+7. attachment parsing exists in runtime
+8. candidate evidence is the true core object
+9. fusion is explicit
+10. pass-1/pass-2 decision flow is correct
+
+---
+
+## 15. Current limitations
+
+The most important remaining limitations are:
+
+### A. Theme is environment-dependent
+Theme works when the environment provides a theme index or theme service.
+It is not yet guaranteed active everywhere.
 
 ### B. Attachment parsing is still text-level
-No binary-native parsing yet inside the repo.
+There is no native binary parsing inside the repo yet.
 
-### C. Attachment-native reasoning may still be fragile
-The current implementation is real, but should be reviewed carefully. The current code suggests there may be a likely loop/indentation bug in `generation/attachment_candidates.py` that could affect correct candidate generation.
+### C. Attachment-native candidate generation should be reviewed carefully
+The implementation is real, but deserves immediate bug review.
 
-### D. Historical footprint is improved but not fully calibrated
-It is being used, but not yet as a fully explicit multi-part score family.
+### D. Historical footprint is not yet fully calibrated
+It is being used, but not yet as a fully explicit score family.
 
-### E. Internal infra coupling remains
-The adapter layer is good, but default service factories still rely on internal imports.
+### E. The adapter boundary is cleaner than before, but still not fully self-contained
+Default factories still lazy-import internal services.
 
-### F. Some top-level docs/comments lag behind
-The graph/runtime has moved ahead faster than some wrapper-level descriptions.
+### F. Some comments/docstrings still lag behind the live runtime
+The graph and nodes are more advanced than some wrapper-level descriptions.
 
 ---
 
-## 23. Recommended immediate attention
+## 16. Recommended immediate attention
 
 The most concrete likely live issue is:
 
 > **review and fix `generation/attachment_candidates.py` first**
 
-Why:
-- it powers an important evidence source
-- it appears to have a likely loop/indentation problem
-- a bug there can silently weaken attachment-native evidence quality
+That matters because:
+- it is part of an important evidence source
+- a bug there can silently weaken attachment-native evidence
+- that can reduce direct-support quality
 
-After that, the next meaningful architectural improvements are:
-
+After that, the next strongest improvements are:
 1. make theme activation more explicit and observable
 2. add binary-native attachment ingestion
 3. deepen historical-footprint calibration
-4. reduce dependency on internal infra
+4. reduce internal infra dependence
 5. update docs/comments to match the live runtime
 
 ---
 
-## 24. Final verdict
+## 17. Final verdict
 
 `rag-summary` is now:
 
 > **a strong graph-based evidence system with real V6 features already implemented**
 
-It is no longer best described as a refactored V5 prototype.
+It is not a simple summary-RAG prototype anymore.
 
-The architecture is now genuinely present in code.
+The architecture is real in code.
 
-The remaining work is about:
-- strengthening maturity
-- closing a few live gaps
+The remaining work is mainly about:
+- increasing maturity
 - improving production-readiness
+- closing a few specific gaps
 
-not about rethinking the core design.
+not about redesigning the core system.
