@@ -1,5 +1,5 @@
 """
-LangChain-style selector finalize chain — Pass 2 (V5 architecture).
+LangChain-style selector finalize chain - Pass 2 (V5 architecture).
 
 Consumes VerificationResult (List[CandidateJudgment]) from Pass 1 and produces
 a validated SelectionResult (Pydantic model).
@@ -14,12 +14,14 @@ Prompt version hierarchy:
   v3 (default): schema-light, relies on structured output
   v2 / v1: legacy variants with JSON skeleton
 """
-
 from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
+
+import json
+import re
 
 from rag_summary.ingestion.adapters import (
     LLMService,
@@ -33,6 +35,84 @@ from .selector_verify_chain import _format_new_card_summary
 
 logger = logging.getLogger(__name__)
 
+_ID_RE = re.compile(r"\b(?:IDMT|CP|SP|CC)-\d+\b|\bIDMT-\d+\b", re.IGNORECASE)
+
+
+def _is_gateway_timeout_error(exc: Exception) -> bool:
+    stack = [exc]
+    seen: set[int] = set()
+    while stack:
+        current = stack.pop()
+        marker = id(current)
+        if marker in seen:
+            continue
+        seen.add(marker)
+
+        status_code = getattr(current, "status_code", None)
+        if status_code == 504:
+            return True
+
+        response = getattr(current, "response", None)
+        if response is not None and getattr(response, "status_code", None) == 504:
+            return True
+
+        message = str(current).lower()
+        if "504" in message and ("timeout" in message or "gateway" in message):
+            return True
+        if "gateway timeout" in message:
+            return True
+
+        cause = getattr(current, "__cause__", None)
+        context = getattr(current, "__context__", None)
+        if isinstance(cause, Exception):
+            stack.append(cause)
+        if isinstance(context, Exception):
+            stack.append(context)
+    return False
+
+
+def _infer_pattern_basis(evidence: str) -> str:
+    text = (evidence or "").lower()
+    if "bundle" in text or "co-occurrence" in text:
+        return "bundle_pattern"
+    if "downstream" in text:
+        return "downstream_chain"
+    if "theme" in text:
+        return "theme"
+    if "capability" in text or "overlap" in text:
+        return "capability_overlap"
+    return "analog_similarity"
+
+
+def _extract_analog_ids(evidence: str, limit: int = 2) -> List[str]:
+    ids = []
+    for match in _ID_RE.findall(evidence or ""):
+        cleaned = match.upper()
+        if cleaned not in ids:
+            ids.append(cleaned)
+        if len(ids) >= limit:
+            break
+    return ids
+
+
+def _ensure_pattern_metadata(result: SelectionResult) -> SelectionResult:
+    patched: List[SupportedStream] = []
+    for stream in result.pattern_inferred:
+        basis = stream.pattern_basis or _infer_pattern_basis(stream.evidence)
+        analog_ids = stream.supporting_analog_ids
+        if not analog_ids:
+            extracted = _extract_analog_ids(stream.evidence)
+            analog_ids = extracted if extracted else []
+        patched.append(
+            stream.model_copy(
+                update={
+                    "pattern_basis": basis,
+                    "supporting_analog_ids": analog_ids,
+                }
+            )
+        )
+    return result.model_copy(update={"pattern_inferred": patched})
+
 
 def _format_judgments(judgments: List[CandidateJudgment]) -> str:
     if not judgments:
@@ -40,7 +120,7 @@ def _format_judgments(judgments: List[CandidateJudgment]) -> str:
     lines = []
     for j in judgments:
         conf_str = f" (conf:{j.confidence:.2f})" if j.confidence > 0 else ""
-        rat_str = f" — {j.rationale}" if j.rationale else ""
+        rat_str = f" - {j.rationale}" if j.rationale else ""
         lines.append(f"- [{j.bucket}]{conf_str} {j.entity_name}{rat_str}")
     return "\n".join(lines)
 
@@ -84,11 +164,11 @@ def _judgments_to_selection_result(judgments: List[CandidateJudgment]) -> Select
                 reason=j.rationale or "No evidence.",
             ))
 
-    return SelectionResult(
+    return _ensure_pattern_metadata(SelectionResult(
         directly_supported=directly,
         pattern_inferred=pattern,
         no_evidence=no_ev,
-    )
+    ))
 
 
 class SelectorFinalizeChain:
@@ -111,6 +191,7 @@ class SelectorFinalizeChain:
         self._llm = llm
         self._max_retries = max_retries
         self._prompt = load_prompt("finalize_selection", version=prompt_version)
+        self.last_prompt_payload: Dict[str, Any] = {}
 
     @property
     def llm(self) -> LLMService:
@@ -124,6 +205,7 @@ class SelectorFinalizeChain:
         new_card_summary: Dict[str, Any],
         judgments: Optional[List[CandidateJudgment]] = None,
         fused_candidates: Optional[List[Dict[str, Any]]] = None,
+        on_prompt: Optional[Callable[[Dict[str, Any]], None]] = None,
         # v1/v2 compat: accept preliminary_classification dict
         preliminary_classification: Optional[Dict[str, Any]] = None,
         verification_result: Optional[VerificationResult] = None,
@@ -158,6 +240,19 @@ class SelectorFinalizeChain:
             },
             role="user",
         )
+        self.last_prompt_payload = {
+            "system": system,
+            "user": user,
+        }
+
+        with open("finalize_chain_last_prompt.json", "w", encoding="utf-8") as f:
+            json.dump(self.last_prompt_payload, f, ensure_ascii=False, indent=2)
+
+        if on_prompt:
+            try:
+                on_prompt(dict(self.last_prompt_payload))
+            except Exception as exc:
+                logger.warning("[FinalizeChain] on_prompt callback failed: %s", exc)
 
         for attempt in range(1, self._max_retries + 1):
             try:
@@ -173,8 +268,11 @@ class SelectorFinalizeChain:
                     or result.pattern_inferred
                     or result.no_evidence
                 ):
-                    return result
+                    return _ensure_pattern_metadata(result)
             except Exception as exc:
+                if _is_gateway_timeout_error(exc):
+                    logger.error("[FinalizeChain] Gateway timeout (504) detected; failing fast")
+                    raise
                 logger.error("[FinalizeChain] Attempt %d failed: %s", attempt, exc)
                 if attempt < self._max_retries:
                     time.sleep(3 * attempt)
