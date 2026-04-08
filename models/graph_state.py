@@ -121,6 +121,13 @@ class PredictionState(TypedDict, total=False):
     rejected_candidates: List[Dict[str, Any]]
 
     # -----------------------------------------------------------------------
+    # Taxonomy (Phase 1 foundation — consumed by later phases)
+    # -----------------------------------------------------------------------
+    taxonomy_registry: Optional[Dict[str, Any]]   # TaxonomyRegistry.model_dump()
+    canonical_label_map: Optional[Dict[str, str]]  # alias (lower) → canonical_name
+    taxonomy_warnings: List[str]                   # non-fatal taxonomy issues
+
+    # -----------------------------------------------------------------------
     # Diagnostics
     # -----------------------------------------------------------------------
     errors: List[str]
@@ -142,3 +149,4 @@ class PredictionState(TypedDict, total=False):
     # _intake_date: str            ISO-8601 date for theme leakage cutoff
     # _attachment_contents: List[Dict]  [{"filename": str, "content": bytes}]
     # _services: ServiceContainer  full service container (Phase 5)
+    # _taxonomy_registry: TaxonomyRegistry  loaded taxonomy registry object

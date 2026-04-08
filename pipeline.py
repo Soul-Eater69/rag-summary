@@ -57,6 +57,7 @@ def run_summary_rag_pipeline(
     theme_svc=None,
     intake_date: Optional[str] = None,
     services=None,
+    taxonomy_registry=None,
 ) -> Dict[str, Any]:
     """
     Run the V6 summary-first RAG pipeline.
@@ -92,6 +93,7 @@ def run_summary_rag_pipeline(
         theme_svc=theme_svc,
         intake_date=intake_date,
         services=services,
+        taxonomy_registry=taxonomy_registry,
     )
 
     if debug_output_dir:
@@ -116,6 +118,9 @@ def run_summary_rag_pipeline(
         # V6 diagnostic fields
         "theme_source_status": result.get("theme_source_status", {}),
         "fusion_profile": result.get("fusion_profile", "default"),
+        # Taxonomy diagnostics
+        "canonical_label_map": result.get("canonical_label_map", {}),
+        "taxonomy_warnings": result.get("taxonomy_warnings", []),
         **({"trace": result.get("trace", {})} if trace_mode else {}),
     }
 
@@ -166,6 +171,9 @@ def _persist_debug_artifacts(output_dir: str, result: Dict[str, Any]) -> None:
             "theme_source_status.json": result.get("theme_source_status", {}),
             "theme_debug.json": result.get("theme_debug", {}),
             "fusion_profile.json": {"profile": result.get("fusion_profile", "default")},
+            # Taxonomy diagnostics
+            "canonical_label_map.json": result.get("canonical_label_map", {}),
+            "taxonomy_warnings.json": result.get("taxonomy_warnings", []),
             "eval_log.json": {
                 "directly_supported": [vs.get("entity_name") for vs in result.get("directly_supported", [])],
                 "pattern_inferred": [vs.get("entity_name") for vs in result.get("pattern_inferred", [])],

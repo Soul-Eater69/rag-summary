@@ -5,6 +5,7 @@ from .capability_map import CapabilityCluster, CapabilityMap
 from .graph_state import PredictionState
 from .candidate_judgment import CandidateJudgment, VerificationResult, JudgmentList, BucketLabel
 from .theme_doc import ThemeDoc, ThemeIndexManifest
+from .taxonomy import TaxonomyStream, TaxonomyRegistry
 
 __all__ = [
     "SummaryDoc",
@@ -22,4 +23,6 @@ __all__ = [
     "BucketLabel",
     "ThemeDoc",
     "ThemeIndexManifest",
+    "TaxonomyStream",
+    "TaxonomyRegistry",
 ]

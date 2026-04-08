@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 
 from rag_summary.models.graph_state import PredictionState
 from rag_summary.ingestion.faiss_indexer import DEFAULT_INDEX_DIR
+from rag_summary.taxonomy.registry_loader import try_load_taxonomy_registry
 from .nodes import (
     node_clean_and_summarize,
     node_retrieve_analogs,
@@ -138,6 +139,7 @@ def run_prediction_graph(
     theme_svc=None,
     intake_date: Optional[str] = None,
     services=None,
+    taxonomy_registry=None,
 ) -> Dict[str, Any]:
     """
     Run the V6 prediction pipeline via LangGraph.
@@ -154,6 +156,18 @@ def run_prediction_graph(
     """
     t_start = time.time()
 
+    # Load taxonomy registry if not explicitly provided
+    if taxonomy_registry is None:
+        taxonomy_registry = try_load_taxonomy_registry()
+
+    # Build canonical_label_map from registry for state injection
+    canonical_label_map = {}
+    taxonomy_warnings: List[str] = []
+    if taxonomy_registry is not None:
+        canonical_label_map = dict(taxonomy_registry.canonical_label_map)
+    else:
+        taxonomy_warnings.append("taxonomy_registry not loaded — taxonomy features disabled")
+
     # Build initial state
     initial_state: PredictionState = {
         "raw_text": ppt_text,
@@ -162,6 +176,8 @@ def run_prediction_graph(
         "errors": [],
         "warnings": [],
         "timing": {},
+        "taxonomy_warnings": taxonomy_warnings,
+        "canonical_label_map": canonical_label_map,
         # Pipeline config passed as private state keys (read by nodes)
         "_index_dir": index_dir,  # type: ignore[typeddict-unknown-key]
         "_ticket_chunks_dir": ticket_chunks_dir,  # type: ignore[typeddict-unknown-key]
@@ -173,6 +189,7 @@ def run_prediction_graph(
         "_theme_svc": theme_svc,  # type: ignore[typeddict-unknown-key]
         "_intake_date": intake_date,  # type: ignore[typeddict-unknown-key]
         "_services": services,  # type: ignore[typeddict-unknown-key]
+        "_taxonomy_registry": taxonomy_registry,  # type: ignore[typeddict-unknown-key]
     }
 
     try:
