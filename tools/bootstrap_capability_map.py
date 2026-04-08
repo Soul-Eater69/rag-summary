@@ -12,17 +12,17 @@ Flow:
 6. Write capability_map.yaml
 
 Usage:
-    python -m rag_summary.tools.bootstrap_capability_map \\
-        --output-dir data \\
-        --config-path config/capability_map.yaml
+    python -m rag_summary.tools.bootstrap_capability_map \
+      --output-dir data \
+      --config-path config/capability_map.yaml
 
     # Dry run (no writes):
     python -m rag_summary.tools.bootstrap_capability_map --dry-run
 
     # With historical enrichment:
-    python -m rag_summary.tools.bootstrap_capability_map \\
-        --ticket-chunks-dir ticket_chunks \\
-        --index-dir local_ticket_summary_faiss
+    python -m rag_summary.tools.bootstrap_capability_map \
+      --ticket-chunks-dir ticket_chunks \
+      --index-dir local_ticket_summary_faiss
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ _CLUSTER_TEMPLATES = {
         "description": "Privacy, auditability, regulatory obligations, consent, controls, and governance requirements.",
         "seed_streams": ["Ensure Compliance"],
         "related_patterns": ["Manage Enterprise Risk"],
-        "cue_families": ["privacy", "audit", "compliance", "regulatory", "hipaa", "consent", "pii", "controls"],
+        "cue_families": ["privacy", "audit", "compliance", " ", "hipaa", "consent", "pii", "controls"],
     },
     "enterprise_risk_governance": {
         "description": "Enterprise risk posture, governance processes, and risk controls.",
@@ -78,7 +78,7 @@ _CLUSTER_TEMPLATES = {
         "cue_families": ["enrollment", "quoting", "pricing", "rate card", "configure price"],
     },
     "product_launch_commercialization": {
-        "description": "New product launches, product setup, commercialization, and go-to-market capability rollouts.",
+        "description": "New product launch, product setup, commercialization, and go-to-market capability rollouts.",
         "seed_streams": ["Establish Product Offering"],
         "related_patterns": ["Manage Leads and Opportunities", "Sell and Enroll"],
         "cue_families": ["product launch", "commercialization", "product offering", "go-to-market"],
@@ -108,7 +108,7 @@ _CLUSTER_TEMPLATES = {
         "cue_families": ["portal", "self-service", "request handling", "inquiry"],
     },
     "analytics_reporting": {
-        "description": "Business analytics, reporting, data insights, and decision-support.",
+        "description": "Business analytics, reporting, data insights, and decision support.",
         "seed_streams": ["Discover Business Insights"],
         "related_patterns": [],
         "cue_families": ["analytics", "reporting", "business insights", "dashboard"],
@@ -127,7 +127,6 @@ _CLUSTER_TEMPLATES = {
     },
 }
 
-
 def fetch_azure_vs_corpus() -> List[Dict[str, Any]]:
     """
     Fetch canonical VS entries from Azure AI Search index.
@@ -142,6 +141,7 @@ def fetch_azure_vs_corpus() -> List[Dict[str, Any]]:
         from src.pipelines.value_stream.retrieval_pipeline import (
             retrieve_kg_candidates,
         )
+
         # Broad query to get all VS entries
         candidates = retrieve_kg_candidates("", top_k=100)
         corpus = []
@@ -159,12 +159,13 @@ def fetch_azure_vs_corpus() -> List[Dict[str, Any]]:
                 "aliases": c.get("aliases", []),
                 "category": c.get("category", ""),
             })
+
         logger.info("Fetched %d VS entries from Azure index", len(corpus))
         return corpus
+
     except Exception as exc:
         logger.warning("Could not fetch Azure VS corpus: %s", exc)
         return []
-
 
 def build_coverage_report(
     corpus: List[Dict[str, Any]],
@@ -197,7 +198,6 @@ def build_coverage_report(
         "uncovered_streams": sorted(uncovered),
         "coverage_pct": round(len(covered) / max(1, len(all_vs_names)) * 100, 1),
     }
-
 
 def draft_capability_map_from_templates(
     corpus: Optional[List[Dict[str, Any]]] = None,
@@ -247,7 +247,6 @@ def draft_capability_map_from_templates(
 
     return {"version": 1, "capabilities": capabilities}
 
-
 def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -257,6 +256,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Bootstrap capability map from Azure VS index"
     )
+
     parser.add_argument(
         "--output-dir",
         default=str(_DEFAULT_OUTPUT_DIR),
@@ -277,6 +277,7 @@ def main() -> None:
         action="store_true",
         help="Skip Azure fetch and use templates only",
     )
+
     args = parser.parse_args()
 
     # Step 1: Fetch VS corpus
@@ -324,7 +325,6 @@ def main() -> None:
     with open(config_path, "w", encoding="utf-8") as f:
         yaml.dump(draft_map, f, default_flow_style=False, sort_keys=False)
     logger.info("Wrote capability map to %s", config_path)
-
 
 if __name__ == "__main__":
     main()
