@@ -14,7 +14,14 @@ import logging
 import pathlib
 import sys
 
-from rag_summary.ingestion.faiss_indexer import ingest_tickets_to_index, DEFAULT_INDEX_DIR
+ROOT_DIR = pathlib.Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+try:
+    from ingestion.faiss_indexer import ingest_tickets_to_index, DEFAULT_INDEX_DIR
+except ModuleNotFoundError:
+    from rag_summary.ingestion.faiss_indexer import ingest_tickets_to_index, DEFAULT_INDEX_DIR
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -29,6 +36,7 @@ def main() -> None:
     parser.add_argument("--model", default="gpt-5-mini-idp", help="LLM model for summary generation")
     parser.add_argument("--reuse", action="store_true", default=True, help="Reuse existing summaries")
     parser.add_argument("--no-reuse", action="store_false", dest="reuse", help="Force regeneration of all summaries")
+
     args = parser.parse_args()
 
     chunks_dir = pathlib.Path(args.ticket_chunks_dir)
