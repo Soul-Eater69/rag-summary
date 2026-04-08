@@ -47,22 +47,21 @@ _SUMMARY_FIELDS_FOR_CUES = [
 _DEFAULT_PROMOTE_BOOST = 0.30
 _DEFAULT_RELATED_BOOST = 0.15
 
-
 def _load_capability_map() -> Dict[str, Dict[str, Any]]:
     """Load capability map from YAML config, returning dict keyed by cluster name."""
     if not _CONFIG_PATH.exists():
         logger.info("Capability map config not found at %s; using empty map.", _CONFIG_PATH)
         return {}
-
+        
     try:
         with _CONFIG_PATH.open("r", encoding="utf-8") as config_file:
             payload = yaml.safe_load(config_file) or {}
-
+            
         caps = payload.get("capabilities")
         if not isinstance(caps, dict) or not caps:
             logger.warning("Capability map at %s has no capabilities; using empty map.", _CONFIG_PATH)
             return {}
-
+            
         normalized: Dict[str, Dict[str, Any]] = {}
         for cluster_name, cluster in caps.items():
             if not isinstance(cluster, dict):
@@ -80,25 +79,22 @@ def _load_capability_map() -> Dict[str, Dict[str, Any]]:
                 "weight": float(cluster.get("weight") or 1.0),
                 "min_signal_strength": float(cluster.get("min_signal_strength") or 0.5),
             }
-
+            
         if not normalized:
             logger.warning("Capability map at %s produced no valid clusters.", _CONFIG_PATH)
         return normalized
-
+        
     except Exception as exc:
         logger.warning("Failed to load capability map from %s (%s); using empty map.", _CONFIG_PATH, exc)
         return {}
 
-
 def _norm(value: str) -> str:
     return normalize_for_search((value or "").strip())
-
 
 def _to_allowed_set(allowed_value_stream_names: Optional[List[str]]) -> Optional[Set[str]]:
     if not allowed_value_stream_names:
         return None
     return {_norm(name) for name in allowed_value_stream_names if name}
-
 
 def _build_cue_text(new_card_summary: Dict[str, Any], cleaned_text: Optional[str]) -> str:
     """Build lowercased text from summary fields for cue matching."""
@@ -113,17 +109,15 @@ def _build_cue_text(new_card_summary: Dict[str, Any], cleaned_text: Optional[str
         parts.append(cleaned_text)
     return "\n".join(parts).lower()
 
-
 def _extract_canonical_functions(new_card_summary: Dict[str, Any]) -> Set[str]:
     """Extract canonical function labels from the summary for function-based matching."""
     funcs: Set[str] = set()
-    for field in ("direct_functions_canonical", "implied_functions_canonical",
+    for field in ("direct_functions_canonical", "implied_functions_canonical", 
                   "direct_functions", "implied_functions"):
         for f in new_card_summary.get(field, []) or []:
             if f:
-                funcs.add(f.lower().strip())
+                funcs.add(str(f).lower().strip())
     return funcs
-
 
 def _compute_capability_hits(
     cue_text: str,
@@ -132,29 +126,49 @@ def _compute_capability_hits(
 ) -> List[Dict[str, Any]]:
     """
     Score each capability cluster against the cue text and canonical functions.
-
+    
     Returns only clusters that exceed their min_signal_strength threshold.
     """
     hits: List[Dict[str, Any]] = []
-
+    canonical_functions_norm = {
+        str(fn).lower().strip()
+        for fn in (canonical_functions or set())
+        if str(fn).strip()
+    }
+    
     for cluster_name, cluster in capability_map.items():
+        direct_cues = {
+            str(term).lower().strip()
+            for term in (cluster.get("direct_cues", set()) or [])
+            if str(term).strip()
+        }
+        indirect_cues = {
+            str(term).lower().strip()
+            for term in (cluster.get("indirect_cues", set()) or [])
+            if str(term).strip()
+        }
+        cluster_functions = [
+            str(fn).lower().strip()
+            for fn in (cluster.get("canonical_functions", set()) or [])
+            if str(fn).strip()
+        ]
+        
         # Direct cue matches
         matched_direct = sorted(
-            term for term in cluster.get("direct_cues", set()) if term in cue_text
+            term for term in direct_cues if term in cue_text
         )
         # Indirect cue matches
         matched_indirect = sorted(
-            term for term in cluster.get("indirect_cues", set()) if term in cue_text
+            term for term in indirect_cues if term in cue_text
         )
         # Canonical function matches
         matched_functions = sorted(
-            fn for fn in cluster.get("canonical_functions", set())
-            if fn.lower() in canonical_functions
+            fn for fn in cluster_functions if fn in canonical_functions_norm
         )
-
+        
         if not matched_direct and not matched_indirect and not matched_functions:
             continue
-
+            
         # Score: direct=1.0, indirect=0.6, function=0.8
         direct_score = len(matched_direct) * 1.0
         indirect_score = len(matched_indirect) * 0.6
@@ -162,12 +176,12 @@ def _compute_capability_hits(
         raw_strength = (direct_score + indirect_score + function_score) / 5.0
         base_strength = min(1.0, raw_strength)
         adjusted_strength = min(1.0, base_strength * float(cluster.get("weight", 1.0)))
-
+        
         # Check threshold
         min_threshold = cluster.get("min_signal_strength", 0.5)
         if adjusted_strength < min_threshold:
             continue
-
+            
         hits.append({
             "capability_cluster": cluster_name,
             "description": cluster.get("description", ""),
@@ -178,9 +192,8 @@ def _compute_capability_hits(
             "promote_value_streams": cluster["promote_value_streams"],
             "related_value_streams": cluster.get("related_value_streams", []),
         })
-
+        
     return hits
-
 
 def map_capabilities_to_candidates(
     *,
@@ -192,7 +205,7 @@ def map_capabilities_to_candidates(
 ) -> Dict[str, Any]:
     """
     Apply capability mapping and return enriched/promoted candidate payload.
-
+    
     Output shape:
       - config_path: str
       - capability_hits: list of cluster hit details
@@ -203,34 +216,34 @@ def map_capabilities_to_candidates(
     capability_map = _load_capability_map()
     allowed_set = _to_allowed_set(allowed_value_stream_names)
     enriched_candidates = deepcopy(candidates or [])
-
+    
     # Inject historical support candidates that aren't already present
     _inject_vs_support_candidates(enriched_candidates, vs_support)
-
+    
     # Build cue text and extract canonical functions
     cue_text = _build_cue_text(new_card_summary, cleaned_text)
     canonical_functions = _extract_canonical_functions(new_card_summary)
-
+    
     # Compute capability hits
     capability_hits = _compute_capability_hits(cue_text, canonical_functions, capability_map)
-
+    
     by_name = {_norm(c.get("entity_name", "")): c for c in enriched_candidates}
     promoted_value_streams: List[Dict[str, Any]] = []
     capability_candidates: List[Dict[str, Any]] = []
-
+    
     for hit in capability_hits:
         strength = float(hit["strength"])
-
+        
         # Process promoted streams (full boost)
         for stream_name in hit["promote_value_streams"]:
             key = _norm(stream_name)
             if allowed_set and key not in allowed_set:
                 continue
-
+                
             promote_boost = round(_DEFAULT_PROMOTE_BOOST * max(0.6, strength), 3)
             # Capability score for CandidateEvidence: based on signal strength
             cap_score = round(min(0.9, 0.4 + strength * 0.5), 3)
-
+            
             if key in by_name:
                 existing = by_name[key]
                 current = float(existing.get("score") or existing.get("best_score") or 0.0)
@@ -248,7 +261,7 @@ def map_capabilities_to_candidates(
                 }
                 enriched_candidates.append(injected)
                 by_name[key] = injected
-
+                
             # Track for CandidateEvidence builder
             capability_candidates.append({
                 "entity_name": stream_name,
@@ -256,7 +269,7 @@ def map_capabilities_to_candidates(
                 "source": "capability",
                 "capability_cluster": hit["capability_cluster"],
             })
-
+            
             promoted_value_streams.append({
                 "entity_name": stream_name,
                 "promotion_reason": "capability_mapping",
@@ -264,16 +277,16 @@ def map_capabilities_to_candidates(
                 "capability_cluster": hit["capability_cluster"],
                 "strength": strength,
             })
-
+            
         # Process related streams (weaker boost)
         for stream_name in hit.get("related_value_streams", []):
             key = _norm(stream_name)
             if allowed_set and key not in allowed_set:
                 continue
-
+                
             related_boost = round(_DEFAULT_RELATED_BOOST * max(0.5, strength), 3)
             cap_score = round(min(0.7, 0.25 + strength * 0.3), 3)
-
+            
             if key in by_name:
                 existing = by_name[key]
                 current = float(existing.get("score") or existing.get("best_score") or 0.0)
@@ -289,7 +302,7 @@ def map_capabilities_to_candidates(
                 }
                 enriched_candidates.append(injected)
                 by_name[key] = injected
-
+                
             capability_candidates.append({
                 "entity_name": stream_name,
                 "score": cap_score,
@@ -297,19 +310,19 @@ def map_capabilities_to_candidates(
                 "capability_cluster": hit["capability_cluster"],
                 "relation": "related",
             })
-
+            
     # Filter to allowed set if specified
     if allowed_set:
         enriched_candidates = [
             c for c in enriched_candidates
             if _norm(c.get("entity_name", "")) in allowed_set
         ]
-
+        
     enriched_candidates.sort(
         key=lambda item: float(item.get("score") or item.get("best_score") or 0.0),
         reverse=True,
     )
-
+    
     return {
         "config_path": str(_CONFIG_PATH),
         "capability_hits": capability_hits,
@@ -317,7 +330,6 @@ def map_capabilities_to_candidates(
         "capability_candidates": capability_candidates,
         "enriched_candidates": enriched_candidates,
     }
-
 
 def _inject_vs_support_candidates(
     candidates: List[Dict[str, Any]],
