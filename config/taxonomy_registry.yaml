@@ -1,0 +1,472 @@
+# ============================================================================
+# Canonical Taxonomy Registry (V1)
+#
+# Single source of truth for all value stream identities, aliases, family
+# groupings, overlap rules, and preference/suppression policies.
+#
+# Used by:
+#   - taxonomy/registry_loader.py  → loads into TaxonomyRegistry
+#   - models/taxonomy.py           → TaxonomyStream / TaxonomyRegistry
+#   - (Phase 4) taxonomy/policy_reranker.py  → rerank/suppress candidates
+#
+# Schema per stream:
+#   id:                  stable integer ID
+#   canonical_name:      official name used in final output
+#   evaluation_name:     name used in eval GT comparison (often = canonical_name)
+#   aliases:             list of known alternative spellings / abbreviations
+#   family:              grouping label (e.g. "finance", "care_management")
+#   scope:               free-text scope description
+#   broad:               true if this stream is a broad umbrella concept
+#   overlaps_with:       list of stream canonical_names that semantically overlap
+#   preferred_over:      list of stream canonical_names this stream dominates
+#   suppress_if_preferred: if true, suppress this stream when a preferred sibling is present
+# ============================================================================
+
+version: "1"
+
+streams:
+  # ---------------------------------------------------------------------------
+  # Family: finance
+  # ---------------------------------------------------------------------------
+  - id: 1
+    canonical_name: "Order to Cash"
+    evaluation_name: "Order to Cash"
+    aliases:
+      - "O2C"
+      - "Order-to-Cash"
+      - "order to cash"
+    family: "finance"
+    scope: "End-to-end revenue cycle from order placement through payment collection"
+    broad: true
+    overlaps_with:
+      - "Issue Payment"
+      - "Manage Invoice and Payment Receipt"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  - id: 2
+    canonical_name: "Issue Payment"
+    evaluation_name: "Issue Payment"
+    aliases:
+      - "issue payment"
+      - "Payment Issuance"
+    family: "finance"
+    scope: "Disbursement of payments to providers, vendors, or members"
+    broad: false
+    overlaps_with:
+      - "Manage Invoice and Payment Receipt"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  - id: 3
+    canonical_name: "Manage Invoice and Payment Receipt"
+    evaluation_name: "Manage Invoice and Payment Receipt"
+    aliases:
+      - "Invoice Management"
+      - "Manage Invoice"
+      - "Payment Receipt"
+      - "manage invoice and payment receipt"
+    family: "finance"
+    scope: "Invoice lifecycle and payment receipt tracking"
+    broad: false
+    overlaps_with:
+      - "Issue Payment"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  # ---------------------------------------------------------------------------
+  # Family: product_and_pricing
+  # ---------------------------------------------------------------------------
+  - id: 4
+    canonical_name: "Configure, Price, and Quote"
+    evaluation_name: "Configure, Price, and Quote"
+    aliases:
+      - "CPQ"
+      - "Configure Price Quote"
+      - "Configure Price and Quote"
+      - "configure, price, and quote"
+    family: "product_and_pricing"
+    scope: "Product configuration, pricing rules, and quote generation"
+    broad: false
+    overlaps_with:
+      - "Manage Product and Service Inventory"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  - id: 5
+    canonical_name: "Manage Product and Service Inventory"
+    evaluation_name: "Manage Product and Service Inventory"
+    aliases:
+      - "Product Inventory"
+      - "Service Inventory"
+      - "manage product and service inventory"
+    family: "product_and_pricing"
+    scope: "Catalog of products and services offered"
+    broad: false
+    overlaps_with:
+      - "Configure, Price, and Quote"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  # ---------------------------------------------------------------------------
+  # Family: care_management
+  # ---------------------------------------------------------------------------
+  - id: 6
+    canonical_name: "Promote Community Health"
+    evaluation_name: "Promote Community Health"
+    aliases:
+      - "Community Health"
+      - "promote community health"
+    family: "care_management"
+    scope: "Population-level community health programs and outreach"
+    broad: true
+    overlaps_with:
+      - "Participate in Health Management Program"
+    preferred_over: []
+    suppress_if_preferred: true
+
+  - id: 7
+    canonical_name: "Participate in Health Management Program"
+    evaluation_name: "Participate in Health Management Program"
+    aliases:
+      - "Health Management"
+      - "HMP"
+      - "participate in health management program"
+    family: "care_management"
+    scope: "Member enrollment and participation in disease/care management programs"
+    broad: false
+    overlaps_with:
+      - "Promote Community Health"
+    preferred_over:
+      - "Promote Community Health"
+    suppress_if_preferred: false
+
+  # ---------------------------------------------------------------------------
+  # Family: member_services
+  # ---------------------------------------------------------------------------
+  - id: 8
+    canonical_name: "Resolve Request Inquiry"
+    evaluation_name: "Resolve Request Inquiry"
+    aliases:
+      - "Request Inquiry"
+      - "Resolve Inquiry"
+      - "resolve request inquiry"
+    family: "member_services"
+    scope: "Handle member/provider inquiries, service requests, and issue resolution"
+    broad: false
+    overlaps_with: []
+    preferred_over: []
+    suppress_if_preferred: false
+
+  - id: 9
+    canonical_name: "Manage Member Information"
+    evaluation_name: "Manage Member Information"
+    aliases:
+      - "Member Information"
+      - "Member Demographics"
+      - "manage member information"
+    family: "member_services"
+    scope: "Member demographic data, contact info, and profile management"
+    broad: false
+    overlaps_with: []
+    preferred_over: []
+    suppress_if_preferred: false
+
+  # ---------------------------------------------------------------------------
+  # Family: enrollment
+  # ---------------------------------------------------------------------------
+  - id: 10
+    canonical_name: "Manage Enrollment"
+    evaluation_name: "Manage Enrollment"
+    aliases:
+      - "Enrollment"
+      - "Member Enrollment"
+      - "manage enrollment"
+    family: "enrollment"
+    scope: "Member enrollment, disenrollment, and eligibility lifecycle"
+    broad: false
+    overlaps_with:
+      - "Manage Eligibility"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  - id: 11
+    canonical_name: "Manage Eligibility"
+    evaluation_name: "Manage Eligibility"
+    aliases:
+      - "Eligibility"
+      - "Eligibility Management"
+      - "manage eligibility"
+    family: "enrollment"
+    scope: "Eligibility determination, verification, and maintenance"
+    broad: false
+    overlaps_with:
+      - "Manage Enrollment"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  # ---------------------------------------------------------------------------
+  # Family: claims
+  # ---------------------------------------------------------------------------
+  - id: 12
+    canonical_name: "Adjudicate Claim"
+    evaluation_name: "Adjudicate Claim"
+    aliases:
+      - "Claims Adjudication"
+      - "Claim Adjudication"
+      - "adjudicate claim"
+    family: "claims"
+    scope: "Processing and adjudicating healthcare claims"
+    broad: false
+    overlaps_with:
+      - "Manage Claim"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  - id: 13
+    canonical_name: "Manage Claim"
+    evaluation_name: "Manage Claim"
+    aliases:
+      - "Claims Management"
+      - "Claim Management"
+      - "manage claim"
+    family: "claims"
+    scope: "End-to-end claim lifecycle management"
+    broad: true
+    overlaps_with:
+      - "Adjudicate Claim"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  # ---------------------------------------------------------------------------
+  # Family: provider_network
+  # ---------------------------------------------------------------------------
+  - id: 14
+    canonical_name: "Manage Provider Network"
+    evaluation_name: "Manage Provider Network"
+    aliases:
+      - "Provider Network"
+      - "Network Management"
+      - "manage provider network"
+    family: "provider_network"
+    scope: "Provider credentialing, contracting, and network adequacy"
+    broad: false
+    overlaps_with:
+      - "Onboard Partner"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  - id: 15
+    canonical_name: "Onboard Partner"
+    evaluation_name: "Onboard Partner"
+    aliases:
+      - "Partner Onboarding"
+      - "Vendor Onboarding"
+      - "onboard partner"
+    family: "provider_network"
+    scope: "Onboard external partners, vendors, or providers into the system"
+    broad: false
+    overlaps_with:
+      - "Manage Provider Network"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  # ---------------------------------------------------------------------------
+  # Family: compliance_and_risk
+  # ---------------------------------------------------------------------------
+  - id: 16
+    canonical_name: "Ensure Compliance"
+    evaluation_name: "Ensure Compliance"
+    aliases:
+      - "Compliance"
+      - "Regulatory Compliance"
+      - "ensure compliance"
+    family: "compliance_and_risk"
+    scope: "Regulatory compliance, audits, and policy adherence"
+    broad: false
+    overlaps_with:
+      - "Manage Enterprise Risk"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  - id: 17
+    canonical_name: "Manage Enterprise Risk"
+    evaluation_name: "Manage Enterprise Risk"
+    aliases:
+      - "Enterprise Risk"
+      - "Risk Management"
+      - "manage enterprise risk"
+    family: "compliance_and_risk"
+    scope: "Enterprise-wide risk identification, assessment, and mitigation"
+    broad: true
+    overlaps_with:
+      - "Ensure Compliance"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  # ---------------------------------------------------------------------------
+  # Family: utilization
+  # ---------------------------------------------------------------------------
+  - id: 18
+    canonical_name: "Manage Utilization"
+    evaluation_name: "Manage Utilization"
+    aliases:
+      - "Utilization Management"
+      - "UM"
+      - "manage utilization"
+    family: "utilization"
+    scope: "Prior authorization, concurrent review, and utilization review"
+    broad: false
+    overlaps_with:
+      - "Authorize Service"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  - id: 19
+    canonical_name: "Authorize Service"
+    evaluation_name: "Authorize Service"
+    aliases:
+      - "Service Authorization"
+      - "Prior Authorization"
+      - "authorize service"
+    family: "utilization"
+    scope: "Pre-service and concurrent service authorization decisions"
+    broad: false
+    overlaps_with:
+      - "Manage Utilization"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  # ---------------------------------------------------------------------------
+  # Family: strategy
+  # ---------------------------------------------------------------------------
+  - id: 20
+    canonical_name: "Develop Mission, Vision, and Strategy"
+    evaluation_name: "Develop Mission, Vision, and Strategy"
+    aliases:
+      - "Mission Vision Strategy"
+      - "Strategic Planning"
+      - "develop mission, vision, and strategy"
+    family: "strategy"
+    scope: "Corporate strategy, mission/vision definition, and strategic planning"
+    broad: true
+    overlaps_with: []
+    preferred_over: []
+    suppress_if_preferred: true
+
+  # ---------------------------------------------------------------------------
+  # Family: reporting
+  # ---------------------------------------------------------------------------
+  - id: 21
+    canonical_name: "Manage Reporting"
+    evaluation_name: "Manage Reporting"
+    aliases:
+      - "Reporting"
+      - "Business Reporting"
+      - "manage reporting"
+    family: "reporting"
+    scope: "Operational, financial, and regulatory reporting"
+    broad: false
+    overlaps_with: []
+    preferred_over: []
+    suppress_if_preferred: false
+
+  # ---------------------------------------------------------------------------
+  # Family: appeals_and_grievances
+  # ---------------------------------------------------------------------------
+  - id: 22
+    canonical_name: "Manage Appeal"
+    evaluation_name: "Manage Appeal"
+    aliases:
+      - "Appeals"
+      - "Appeal Management"
+      - "manage appeal"
+    family: "appeals_and_grievances"
+    scope: "Member and provider appeals processing"
+    broad: false
+    overlaps_with:
+      - "Manage Grievance"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  - id: 23
+    canonical_name: "Manage Grievance"
+    evaluation_name: "Manage Grievance"
+    aliases:
+      - "Grievances"
+      - "Grievance Management"
+      - "manage grievance"
+    family: "appeals_and_grievances"
+    scope: "Member and provider grievance processing"
+    broad: false
+    overlaps_with:
+      - "Manage Appeal"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  # ---------------------------------------------------------------------------
+  # Family: referrals
+  # ---------------------------------------------------------------------------
+  - id: 24
+    canonical_name: "Manage Referral"
+    evaluation_name: "Manage Referral"
+    aliases:
+      - "Referral Management"
+      - "Referrals"
+      - "manage referral"
+    family: "referrals"
+    scope: "Referral creation, tracking, and coordination"
+    broad: false
+    overlaps_with: []
+    preferred_over: []
+    suppress_if_preferred: false
+
+  # ---------------------------------------------------------------------------
+  # Family: benefit_design
+  # ---------------------------------------------------------------------------
+  - id: 25
+    canonical_name: "Manage Benefit"
+    evaluation_name: "Manage Benefit"
+    aliases:
+      - "Benefit Management"
+      - "Benefits"
+      - "manage benefit"
+    family: "benefit_design"
+    scope: "Benefit plan design, configuration, and administration"
+    broad: false
+    overlaps_with: []
+    preferred_over: []
+    suppress_if_preferred: false
+
+  # ---------------------------------------------------------------------------
+  # TODO: Add remaining streams as they become available.
+  # When adding a new stream, follow the schema above:
+  #   id, canonical_name, evaluation_name, aliases, family, scope, broad,
+  #   overlaps_with, preferred_over, suppress_if_preferred
+  #
+  # Known streams not yet listed:
+  #   - Manage Pharmacy Benefit
+  #   - Manage Quality Program
+  #   - Manage Outreach and Marketing
+  #   - Manage Data and Analytics
+  #   - Manage IT Infrastructure
+  #   - Manage Human Capital
+  #   - Manage Vendor Relationship
+  #   - Manage Encounter
+  #   - Credential Provider
+  #   - Contract Provider
+  #   - Manage Subrogation
+  #   - Manage Reinsurance
+  #   - Manage COB (Coordination of Benefits)
+  #   - Manage Accreditation
+  #   - Manage Fraud, Waste, and Abuse
+  #   - Manage Care Coordination
+  #   - Manage Population Health
+  #   - Manage Wellness Program
+  #   - Manage Behavioral Health
+  #   - Manage Dental
+  #   - Manage Vision
+  #   - Manage Transplant
+  #   - Manage Workers Compensation
+  #   - Manage Auto/No Fault
+  # ---------------------------------------------------------------------------

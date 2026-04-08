@@ -122,6 +122,13 @@ class PredictionState(TypedDict, total=False):
     rejected_candidates: List[Dict[str, Any]]
 
     # ---------------------------------------------------------
+    # Taxonomy (Phase 1 foundation — consumed by later phases)
+    # ---------------------------------------------------------
+    taxonomy_registry: Optional[Dict[str, Any]]    # TaxonomyRegistry.model_dump()
+    canonical_label_map: Optional[Dict[str, str]]  # alias (lower) -> canonical_name
+    taxonomy_warnings: List[str]                   # non-fatal taxonomy issues
+
+    # ---------------------------------------------------------
     # Diagnostics
     # ---------------------------------------------------------
     errors: List[str]
@@ -132,14 +139,17 @@ class PredictionState(TypedDict, total=False):
     # Private pipeline config keys (injected by run_prediction_graph)
     # All _* keys use type: ignore at injection sites.
     # ---------------------------------------------------------
-    _index_dir: str                  # FAISS summary index directory
-    _ticket_chunks_dir: str          # ticket chunks/ directory path
-    _top_kg_candidates: int          # KG retrieval top_k
-    _include_raw_evidence: bool      # Whether to collect raw chunks
+    _index_dir: str                   # FAISS summary index directory
+    _ticket_chunks_dir: str           # ticket_chunks/ directory path
+    _top_kg_candidates: int           # KG retrieval top_k
+    _include_raw_evidence: bool       # whether to collect raw chunks
     _max_raw_evidence_tickets: int
-    _min_candidate_floor: int        # Minimum candidates for verifier
-    _llm: LLMService                 # LLM service instance
-    _theme_svc: ThemeRetrievalService # theme service (overrides config)
-    _intake_date: str                # ISO-8601 date for theme leakage cutoff
-    _attachment_contents: List[Dict] # [{"filename": str, "content": bytes}]
-    _services: ServiceContainer      # full service container (Phase 5)
+    _min_candidate_floor: int         # minimum candidates for verifier
+    _llm: Any                         # LLMService instance
+    _theme_svc: Any                   # ThemeRetrievalService (overrides config)
+    _intake_date: str                 # ISO-8601 date for theme leakage cutoff
+    _attachment_contents: List[Dict[str, Any]]  # [{"filename": str, "content": bytes}]
+    _services: Any                    # ServiceContainer (Phase 5)
+    _taxonomy_registry: Any           # TaxonomyRegistry (Phase 1)
+    _trace_prompt_callback: Any       # Optional callback for prompt tracing
+    _trace_verify_prompt_callback: Any  # Optional callback for verify prompt tracing
