@@ -1,5 +1,5 @@
 """
-KeywordThemeService — always-active, zero-setup theme service (V6).
+KeywordThemeService - always-active, zero-setup theme service (V6).
 
 Uses the capability map's direct_cues and cue_phrases to score query text
 without requiring any offline index build or embedding service. This replaces
@@ -7,8 +7,8 @@ the _NoopThemeService as the default, so the theme evidence slot is never
 left at zero in a fresh repo.
 
 Scoring per VS:
-    cue_score = weighted match count / normalizer
-    candidate_score = cue_score * cluster_weight * BASE_SCALE
+  cue_score = weighted match count / normalizer
+  candidate_score = cue_score * cluster_weight * BASE_SCALE
 
 Scores are deliberately capped below 0.50 (max ~0.45) so keyword-matched
 themes sit below FAISS-matched themes in the ranking and never inflate
@@ -35,33 +35,32 @@ _KEYWORD_THEME_BASE = 0.10
 # Normalizer: how many cue matches = "full signal"
 _CUE_NORM = 5.0
 
-
 def _load_capability_map() -> Dict[str, Dict[str, Any]]:
     if not _CONFIG_PATH.exists():
         return {}
     try:
         with _CONFIG_PATH.open("r", encoding="utf-8") as f:
             payload = yaml.safe_load(f) or {}
-        caps = payload.get("capabilities") or {}
-        result = {}
-        for name, cluster in caps.items():
-            if not isinstance(cluster, dict):
-                continue
-            promote = (
-                cluster.get("promote_value_streams")
-                or cluster.get("promoted_value_streams")
-                or []
-            )
-            if not promote:
-                continue
-            result[name] = {
-                "direct_cues": list(cluster.get("direct_cues") or []),
-                "indirect_cues": list(cluster.get("indirect_cues") or []),
-                "cue_phrases": list(cluster.get("cue_phrases") or []),
-                "promote_value_streams": list(promote),
-                "weight": float(cluster.get("weight") or 1.0),
-            }
-        return result
+            caps = payload.get("capabilities") or {}
+            result = {}
+            for name, cluster in caps.items():
+                if not isinstance(cluster, dict):
+                    continue
+                promote = (
+                    cluster.get("promote_value_streams")
+                    or cluster.get("promoted_value_streams")
+                    or []
+                )
+                if not promote:
+                    continue
+                result[name] = {
+                    "direct_cues": list(cluster.get("direct_cues") or []),
+                    "indirect_cues": list(cluster.get("indirect_cues") or []),
+                    "cue_phrases": list(cluster.get("cue_phrases") or []),
+                    "promote_value_streams": list(promote),
+                    "weight": float(cluster.get("weight") or 1.0),
+                }
+            return result
     except Exception as exc:
         logger.warning("[KeywordThemeService] Failed to load capability map: %s", exc)
         return {}
@@ -72,7 +71,7 @@ class KeywordThemeService:
     Always-active theme service backed by capability map keyword matching.
 
     Activated automatically by node_retrieve_themes when no FAISS index exists.
-    Produces theme candidates with source="theme" at modest scores (≤ 0.45)
+    Produces theme candidates with source="theme" at modest scores (<= 0.45)
     so they contribute to pattern_inferred classification without over-inflating
     confidence.
 
@@ -109,17 +108,28 @@ class KeywordThemeService:
             return []
 
         lower_query = query_text.lower()
-        candidates: Dict[str, Dict[str, Any]] = {}  # vs_name → best candidate
+        candidates: Dict[str, Dict[str, Any]] = {}  # vs_name -> best candidate
 
         for cluster_name, cluster in capability_map.items():
-            all_cues = (
-                cluster.get("direct_cues", [])
-                + cluster.get("indirect_cues", [])
-                + cluster.get("cue_phrases", [])
-            )
+            direct_cues = [
+                str(c).lower().strip()
+                for c in (cluster.get("direct_cues", []) or [])
+                if str(c).strip()
+            ]
+            indirect_cues = [
+                str(c).lower().strip()
+                for c in (cluster.get("indirect_cues", []) or [])
+                if str(c).strip()
+            ]
+            cue_phrases = [
+                str(c).lower().strip()
+                for c in (cluster.get("cue_phrases", []) or [])
+                if str(c).strip()
+            ]
+            all_cues = direct_cues + indirect_cues + cue_phrases
 
             # Direct cues weighted 1.0, indirect/cue_phrases 0.5
-            direct_set = set(cluster.get("direct_cues", []))
+            direct_set = set(direct_cues)
             direct_hits = [c for c in all_cues if c in lower_query and c in direct_set]
             other_hits = [c for c in all_cues if c in lower_query and c not in direct_set]
 
