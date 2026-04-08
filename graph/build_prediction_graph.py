@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from rag_summary.models.graph_state import PredictionState
 from rag_summary.ingestion.faiss_indexer import DEFAULT_INDEX_DIR
@@ -82,7 +82,7 @@ def build_prediction_graph():
         {
             "retrieve_analogs": "retrieve_analogs",
             "end": END,
-        },
+        }
     )
 
     # Conditional: skip VS evidence if no analogs
@@ -92,7 +92,7 @@ def build_prediction_graph():
         {
             "collect_vs_evidence": "collect_vs_evidence",
             "retrieve_kg": "retrieve_kg",
-        },
+        }
     )
 
     # VS evidence always feeds into KG retrieval
@@ -115,7 +115,7 @@ def build_prediction_graph():
         {
             "finalize_selection": "finalize_selection",
             "finalize_output": "finalize_output",
-        },
+        }
     )
 
     graph.add_edge("finalize_selection", "finalize_output")
@@ -140,16 +140,20 @@ def run_prediction_graph(
     intake_date: Optional[str] = None,
     services=None,
     taxonomy_registry=None,
+    trace_mode: bool = False,
+    trace_node_callback: Optional[Callable[[str, Dict[str, Any], Dict[str, Any]], None]] = None,
+    trace_prompt_callback: Optional[Callable[[Dict[str, str]], None]] = None,
+    trace_verify_prompt_callback: Optional[Callable[[Dict[str, str]], None]] = None,
 ) -> Dict[str, Any]:
     """
     Run the V6 prediction pipeline via LangGraph.
 
     14-node graph:
-      clean_and_summarize → retrieve_analogs → collect_vs_evidence
-      → retrieve_kg → retrieve_themes → map_capabilities
-      → extract_card_candidates → collect_raw_evidence
-      → parse_attachments → build_evidence → fuse_scores
-      → verify_candidates → finalize_selection → finalize_output
+      clean_and_summarize -> retrieve_analogs -> collect_vs_evidence
+      -> retrieve_kg -> retrieve_themes -> map_capabilities
+      -> extract_card_candidates -> collect_raw_evidence
+      -> parse_attachments -> build_evidence -> fuse_scores
+      -> verify_candidates -> finalize_selection -> finalize_output
 
     Pipeline config is injected into state as private underscore keys that
     nodes read from. Returns the final PredictionState dict with all artifacts.
@@ -190,32 +194,63 @@ def run_prediction_graph(
         "_intake_date": intake_date,  # type: ignore[typeddict-unknown-key]
         "_services": services,  # type: ignore[typeddict-unknown-key]
         "_taxonomy_registry": taxonomy_registry,  # type: ignore[typeddict-unknown-key]
+        "_trace_prompt_callback": trace_prompt_callback,  # type: ignore[typeddict-unknown-key]
+        "_trace_verify_prompt_callback": trace_verify_prompt_callback,  # type: ignore[typeddict-unknown-key]
     }
+
+    trace: Dict[str, Any] = {"node_outputs": {}}
 
     try:
         app = build_prediction_graph()
-        final_state = app.invoke(initial_state)
+        if trace_mode:
+            merged_state: Dict[str, Any] = dict(initial_state)
+            for event in app.stream(initial_state, stream_mode="updates"):
+                if not isinstance(event, dict):
+                    continue
+                for node_name, updates in event.items():
+                    if isinstance(updates, dict):
+                        trace["node_outputs"][node_name] = updates
+                        merged_state.update(updates)
+                        if trace_node_callback:
+                            try:
+                                trace_node_callback(node_name, updates, dict(merged_state))
+                            except Exception as exc:
+                                logger.warning(
+                                    "[run_prediction_graph] trace node callback failed at %s: %s",
+                                    node_name,
+                                    exc,
+                                )
+            final_state = merged_state
+        else:
+            final_state = app.invoke(initial_state)
+
     except ImportError:
-        # LangGraph not installed — fall back to sequential imperative execution
+        # LangGraph not installed - fall back to sequential imperative execution
         logger.warning(
             "[run_prediction_graph] langgraph not available, running sequential fallback"
         )
-        final_state = _run_sequential(initial_state)
+        final_state = _run_sequential(
+            initial_state,
+            trace=trace if trace_mode else None,
+            trace_node_callback=trace_node_callback,
+        )
 
     elapsed = time.time() - t_start
     final_state["timing"] = {"total_seconds": round(elapsed, 2)}
+    if trace_mode:
+        trace["final_prompt"] = final_state.get("final_prompt", {})
+        trace["timing"] = final_state.get("timing", {})
+        final_state["trace"] = trace
 
-    logger.info(
-        "[run_prediction_graph] DONE in %.2fs | direct=%d | pattern=%d | no_evidence=%d",
-        elapsed,
-        len(final_state.get("directly_supported", [])),
-        len(final_state.get("pattern_inferred", [])),
-        len(final_state.get("no_evidence", [])),
-    )
     return dict(final_state)
 
 
-def _run_sequential(state: PredictionState) -> PredictionState:
+def _run_sequential(
+    state: PredictionState,
+    *,
+    trace: Optional[Dict[str, Any]] = None,
+    trace_node_callback: Optional[Callable[[str, Dict[str, Any], Dict[str, Any]], None]] = None,
+) -> PredictionState:
     """
     Sequential fallback when LangGraph is not installed.
 
@@ -228,29 +263,46 @@ def _run_sequential(state: PredictionState) -> PredictionState:
         should_run_finalize,
     )
 
-    def _merge(s: PredictionState, updates: Dict[str, Any]) -> PredictionState:
-        return {**s, **updates}  # type: ignore[return-value]
+    def _merge(
+        s: PredictionState,
+        updates: Dict[str, Any],
+        *,
+        node_name: Optional[str] = None,
+    ) -> PredictionState:
+        if trace is not None and node_name:
+            trace.setdefault("node_outputs", {})[node_name] = updates
+        merged = {**s, **updates} # type: ignore[assignment]
+        if trace_node_callback and node_name:
+            try:
+                trace_node_callback(node_name, updates, dict(merged))
+            except Exception as exc:
+                logger.warning(
+                    "[run_prediction_graph] sequential trace callback failed at %s: %s",
+                    node_name,
+                    exc,
+                )
+        return merged # type: ignore[return-value]
 
-    state = _merge(state, node_clean_and_summarize(state))
+    state = _merge(state, node_clean_and_summarize(state), node_name="clean_and_summarize")
     if should_continue_after_summarize(state) == "end":
         return state
 
-    state = _merge(state, node_retrieve_analogs(state))
+    state = _merge(state, node_retrieve_analogs(state), node_name="retrieve_analogs")
     if should_continue_after_analogs(state) == "collect_vs_evidence":
-        state = _merge(state, node_collect_vs_evidence(state))
+        state = _merge(state, node_collect_vs_evidence(state), node_name="collect_vs_evidence")
 
-    state = _merge(state, node_retrieve_kg(state))
-    state = _merge(state, node_retrieve_themes(state))
-    state = _merge(state, node_map_capabilities(state))
-    state = _merge(state, node_extract_card_candidates(state))
-    state = _merge(state, node_collect_raw_evidence(state))
-    state = _merge(state, node_parse_attachments(state))
-    state = _merge(state, node_build_evidence(state))
-    state = _merge(state, node_fuse_scores(state))
-    state = _merge(state, node_verify_candidates(state))
+    state = _merge(state, node_retrieve_kg(state), node_name="retrieve_kg")
+    state = _merge(state, node_retrieve_themes(state), node_name="retrieve_themes")
+    state = _merge(state, node_map_capabilities(state), node_name="map_capabilities")
+    state = _merge(state, node_extract_card_candidates(state), node_name="extract_card_candidates")
+    state = _merge(state, node_collect_raw_evidence(state), node_name="collect_raw_evidence")
+    state = _merge(state, node_parse_attachments(state), node_name="parse_attachments")
+    state = _merge(state, node_build_evidence(state), node_name="build_evidence")
+    state = _merge(state, node_fuse_scores(state), node_name="fuse_scores")
+    state = _merge(state, node_verify_candidates(state), node_name="verify_candidates")
 
     if should_run_finalize(state) == "finalize_selection":
-        state = _merge(state, node_finalize_selection(state))
+        state = _merge(state, node_finalize_selection(state), node_name="finalize_selection")
 
-    state = _merge(state, node_finalize_output(state))
+    state = _merge(state, node_finalize_output(state), node_name="finalize_output")
     return state

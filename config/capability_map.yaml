@@ -132,8 +132,8 @@ capabilities:
       - quote/rating
       - enrollment
     promote_value_streams:
-      - Sell and Enroll
-      - Configure Price and Quote
+      - Sell and Enroll Individual Coverage
+      - Configure, Price, and Quote
     related_value_streams:
       - Manage Leads and Opportunities
     weight: 0.85
@@ -233,7 +233,8 @@ capabilities:
       - claims processing
       - payment
     promote_value_streams:
-      - Process Claims
+      - Adjudicate Claim
+      - Manage Claim Inventory
     related_value_streams:
       - Issue Payment
       - Manage Invoice and Payment Receipt
@@ -259,7 +260,7 @@ capabilities:
       - portal access
       - request handling
     promote_value_streams:
-      - Resolve Request Inquiry
+      - Resolve Request-Inquiry
     related_value_streams: []
     weight: 0.85
     min_signal_strength: 0.5
@@ -333,7 +334,832 @@ capabilities:
     promote_value_streams:
       - Manage Leads and Opportunities
     related_value_streams:
-      - Sell and Enroll
-      - Configure Price and Quote
+      - Sell and Enroll Individual Coverage
+      - Configure, Price, and Quote
     weight: 0.8
+    min_signal_strength: 0.55
+
+  # ---------------------------------------------------------
+  # Claims & Utilization
+  # ---------------------------------------------------------
+
+  utilization_management_administration:
+    description: >
+      Administration and oversight of utilization management programs,
+      prior authorization workflows, and UM program governance.
+    direct_cues:
+      - utilization management
+      - prior authorization
+      - um program
+      - utilization review
+      - authorization workflow
+      - concurrent review
+    indirect_cues:
+      - medical necessity
+      - length of stay
+      - case review
+      - clinical criteria
+    canonical_functions:
+      - authorization
+      - care workflow
+    promote_value_streams:
+      - Administer Utilization Management Program
+      - Manage Utilization Management Program
+    related_value_streams:
+      - Manage Member Care
+    weight: 0.9
+    min_signal_strength: 0.55
+
+  quality_management:
+    description: >
+      Quality program administration, HEDIS, clinical quality measures,
+      accreditation, and improvement initiatives.
+    direct_cues:
+      - quality management
+      - hedis
+      - quality measure
+      - accreditation
+      - ncqa
+      - urac
+      - quality improvement
+      - stars rating
+    indirect_cues:
+      - clinical quality
+      - performance measure
+      - quality reporting
+      - audit readiness
+    canonical_functions:
+      - compliance
+      - reporting
+    promote_value_streams:
+      - Administer Quality Management Program
+    related_value_streams:
+      - Ensure Compliance
+      - Discover Business Insights
+    weight: 0.85
+    min_signal_strength: 0.55
+
+  value_based_care:
+    description: >
+      Value-based care contracts, risk-based arrangements, ACO,
+      pay-for-performance, and alternative payment models.
+    direct_cues:
+      - value-based care
+      - value based care
+      - vbc
+      - aco
+      - alternative payment model
+      - pay for performance
+      - risk-based contract
+      - bundled payment
+    indirect_cues:
+      - shared savings
+      - quality incentive
+      - risk arrangement
+      - population health contract
+    canonical_functions:
+      - care workflow
+      - reporting
+    promote_value_streams:
+      - Fulfill Value-Based Care Arrangement
+    related_value_streams:
+      - Manage Member Care
+      - Realize Risk Adjustment
+    weight: 0.85
+    min_signal_strength: 0.55
+
+  health_management_programs:
+    description: >
+      Member participation in disease management, wellness programs,
+      health coaching, and chronic condition management.
+    direct_cues:
+      - health management
+      - disease management
+      - wellness program
+      - health coaching
+      - chronic condition
+      - population health
+    indirect_cues:
+      - member wellness
+      - condition management
+      - health program enrollment
+      - lifestyle intervention
+    canonical_functions:
+      - care workflow
+      - outreach
+    promote_value_streams:
+      - Participate in Health Management Program
+    related_value_streams:
+      - Manage Member Care
+      - Perform Engagement
+    weight: 0.8
+    min_signal_strength: 0.5
+
+  member_care_delivery:
+    description: >
+      Direct care delivery to members, care access, telehealth,
+      specialist visits, and care coordination from the member perspective.
+    direct_cues:
+      - receive care
+      - care access
+      - telehealth
+      - specialist visit
+      - care delivery
+      - member care
+    indirect_cues:
+      - care navigation
+      - benefit access
+      - care coordination
+    canonical_functions:
+      - care workflow
+    promote_value_streams:
+      - Receive Care
+    related_value_streams:
+      - Manage Member Care
+      - Participate in Health Management Program
+    weight: 0.7
+    min_signal_strength: 0.5
+
+  pharmacy_prescriptions:
+    description: >
+      Pharmacy benefit management, prescription drug fulfillment,
+      formulary management, and specialty pharmacy.
+    direct_cues:
+      - pharmacy
+      - prescription
+      - drug benefit
+      - formulary
+      - pbm
+      - specialty drug
+      - medication management
+    indirect_cues:
+      - drug coverage
+      - medication adherence
+      - prior auth pharmacy
+      - drug cost
+    canonical_functions:
+      - care workflow
+      - authorization
+    promote_value_streams:
+      - Fill and Manage Prescriptions
+    related_value_streams:
+      - Manage Utilization Management Program
+    weight: 0.85
+    min_signal_strength: 0.55
+
+  community_health:
+    description: >
+      Community health promotion, social determinants of health,
+      public health initiatives, and SDoH interventions.
+    direct_cues:
+      - community health
+      - social determinants
+      - sdoh
+      - public health
+      - health equity
+      - food insecurity
+      - housing instability
+    indirect_cues:
+      - social needs
+      - community resources
+      - health disparities
+      - health literacy
+    canonical_functions:
+      - outreach
+      - care workflow
+    promote_value_streams:
+      - Promote Community Health
+    related_value_streams:
+      - Perform Engagement
+      - Manage Member Care
+    weight: 0.75
+    min_signal_strength: 0.5
+
+  # ---------------------------------------------------------
+  # Enrollment Specialties
+  # ---------------------------------------------------------
+
+  medicare_enrollment:
+    description: >
+      Group Medicare enrollment, Medicare Advantage, Medicare supplement,
+      and employer group retiree medicare products.
+    direct_cues:
+      - medicare
+      - medicare advantage
+      - group medicare
+      - retiree coverage
+      - part d
+      - mapd
+      - egwp
+    indirect_cues:
+      - retiree benefit
+      - cms compliance
+      - medicare plan
+      - annual enrollment period
+    canonical_functions:
+      - enrollment
+    promote_value_streams:
+      - Enroll Group Medicare Coverage
+    related_value_streams:
+      - Sell and Enroll Individual Coverage
+    weight: 0.85
+    min_signal_strength: 0.55
+
+  medicaid_enrollment:
+    description: >
+      Medicaid member enrollment, state Medicaid programs,
+      managed Medicaid, and CHIP enrollment.
+    direct_cues:
+      - medicaid
+      - managed medicaid
+      - chip
+      - state medicaid
+      - medicaid member
+      - medicaid enrollment
+    indirect_cues:
+      - state program
+      - low income
+      - government program
+      - medicaid eligibility
+    canonical_functions:
+      - enrollment
+    promote_value_streams:
+      - Enroll Medicaid Member
+    related_value_streams:
+      - Sell and Enroll Individual Coverage
+    weight: 0.85
+    min_signal_strength: 0.55
+
+  individual_enrollment:
+    description: >
+      Individual and family plan enrollment, ACA marketplace,
+      special enrollment periods, and individual coverage sales.
+    direct_cues:
+      - individual coverage
+      - individual plan
+      - aca
+      - marketplace
+      - individual market
+      - special enrollment
+      - exchange plan
+    indirect_cues:
+      - ifp
+      - open enrollment
+      - individual member
+      - subsidy eligibility
+    canonical_functions:
+      - enrollment
+    promote_value_streams:
+      - Sell and Enroll Individual Coverage
+    related_value_streams:
+      - Configure, Price, and Quote
+    weight: 0.85
+    min_signal_strength: 0.55
+
+  # ---------------------------------------------------------
+  # Risk & Actuarial
+  # ---------------------------------------------------------
+
+  risk_adjustment:
+    description: >
+      Risk adjustment programs, HCC coding, CMS risk adjustment,
+      risk score, and medical record review for risk capture.
+    direct_cues:
+      - risk adjustment
+      - hcc
+      - hcc coding
+      - risk score
+      - medical record review
+      - hierarchical condition
+    indirect_cues:
+      - diagnosis coding
+      - risk capture
+      - retrospective review
+      - radv
+    canonical_functions:
+      - reporting
+      - compliance
+    promote_value_streams:
+      - Realize Risk Adjustment
+    related_value_streams:
+      - Enroll Group Medicare Coverage
+    weight: 0.85
+    min_signal_strength: 0.55
+
+  reserves_actuarial:
+    description: >
+      Actuarial reserving, loss reserves, financial adequacy,
+      ibnr, and reserve optimization.
+    direct_cues:
+      - reserves
+      - actuarial
+      - ibnr
+      - loss reserve
+      - reserve adequacy
+      - actuarial assumption
+    indirect_cues:
+      - premium rate
+      - underwriting reserve
+      - financial adequacy
+      - claim liability
+    canonical_functions:
+      - reporting
+    promote_value_streams:
+      - Optimize Reserves
+    related_value_streams:
+      - Manage Enterprise Risk
+    weight: 0.8
+    min_signal_strength: 0.55
+
+  producer_broker_management:
+    description: >
+      Broker and producer management, agent operations, distribution
+      channel management, and producer compensation.
+    direct_cues:
+      - broker
+      - producer
+      - agent
+      - distribution channel
+      - producer operations
+      - broker compensation
+      - general agent
+    indirect_cues:
+      - insurance agent
+      - sales channel
+      - producer portal
+      - broker enrollment
+    canonical_functions:
+      - onboarding
+      - outreach
+    promote_value_streams:
+      - Manage Producer Operations
+    related_value_streams:
+      - Manage Leads and Opportunities
+      - Sell and Enroll Individual Coverage
+    weight: 0.8
+    min_signal_strength: 0.5
+
+  # ---------------------------------------------------------
+  # Finance (Internal)
+  # ---------------------------------------------------------
+
+  financial_recording:
+    description: >
+      General ledger, financial transaction recording, journal entries,
+      and accounting operations.
+    direct_cues:
+      - general ledger
+      - journal entry
+      - financial transaction
+      - accounting
+      - gl entry
+      - subledger
+    indirect_cues:
+      - financial close
+      - account booking
+      - financial record
+      - expense recording
+    canonical_functions:
+      - reporting
+    promote_value_streams:
+      - Record Financial Transaction
+    related_value_streams:
+      - Reconcile Account
+      - Manage Invoice and Payment Receipt
+    weight: 0.75
+    min_signal_strength: 0.55
+
+  account_reconciliation:
+    description: >
+      Account reconciliation, financial reconciliation, data matching,
+      and discrepancy resolution.
+    direct_cues:
+      - reconciliation
+      - account reconcile
+      - financial reconcile
+      - data reconcile
+      - discrepancy resolution
+      - balance reconcile
+    indirect_cues:
+      - matching
+      - variance resolution
+      - out-of-balance
+      - ledger reconcile
+    canonical_functions:
+      - reporting
+    promote_value_streams:
+      - Reconcile Account
+      - Reconcile Data
+    related_value_streams:
+      - Record Financial Transaction
+    weight: 0.75
+    min_signal_strength: 0.55
+
+  overpayment_recovery:
+    description: >
+      Overpayment identification, recoupment, recovery activities,
+      and coordination of benefits for duplicate payments.
+    direct_cues:
+      - overpayment
+      - recoupment
+      - recovery
+      - duplicate payment
+      - coordination of benefits
+      - cob
+      - refund request
+    indirect_cues:
+      - payment error
+      - claim overpayment
+      - provider refund
+      - excess payment
+    canonical_functions:
+      - claims processing
+    promote_value_streams:
+      - Recover Overpayment
+    related_value_streams:
+      - Ensure Payment Integrity
+      - Reconcile Account
+    weight: 0.8
+    min_signal_strength: 0.55
+
+  payment_integrity:
+    description: >
+      Payment integrity controls, fraud waste and abuse detection,
+      prepay and postpay editing, and claim accuracy.
+    direct_cues:
+      - payment integrity
+      - fraud
+      - waste
+      - abuse
+      - fwa
+      - prepay edit
+      - postpay
+      - claim accuracy
+      - improper payment
+    indirect_cues:
+      - claim audit
+      - duplicate detection
+      - billing accuracy
+      - medical review
+    canonical_functions:
+      - compliance
+      - claims processing
+    promote_value_streams:
+      - Ensure Payment Integrity
+    related_value_streams:
+      - Recover Overpayment
+      - Adjudicate Claim
+    weight: 0.85
+    min_signal_strength: 0.55
+
+  asset_procurement:
+    description: >
+      Asset acquisition, procurement, purchasing, supply chain,
+      and asset lifecycle management.
+    direct_cues:
+      - asset acquisition
+      - procurement
+      - purchasing
+      - supply chain
+      - asset request
+      - purchase order
+    indirect_cues:
+      - vendor purchase
+      - equipment order
+      - asset lifecycle
+      - sourcing
+    canonical_functions:
+      - vendor integration
+    promote_value_streams:
+      - Acquire Asset
+    related_value_streams:
+      - Onboard Partner
+    weight: 0.7
+    min_signal_strength: 0.55
+
+  # ---------------------------------------------------------
+  # Compliance, Audit & Regulatory
+  # ---------------------------------------------------------
+
+  appeals_grievances:
+    description: >
+      Member and provider appeals, grievances, dispute resolution,
+      and claims reconsideration processes.
+    direct_cues:
+      - appeal
+      - grievance
+      - dispute
+      - reconsideration
+      - member complaint
+      - claim appeal
+      - ire
+    indirect_cues:
+      - hearing process
+      - adverse determination
+      - denial appeal
+      - second review
+    canonical_functions:
+      - request handling
+      - compliance
+    promote_value_streams:
+      - Appeal Decision
+    related_value_streams:
+      - Resolve Request-Inquiry
+    weight: 0.85
+    min_signal_strength: 0.55
+
+  audit_management:
+    description: >
+      Audit management, internal audit, external audit support,
+      audit readiness, and audit findings remediation.
+    direct_cues:
+      - audit
+      - internal audit
+      - external audit
+      - audit finding
+      - audit readiness
+      - soc 2
+      - hitrust
+    indirect_cues:
+      - compliance review
+      - control testing
+      - audit trail
+      - audit support
+    canonical_functions:
+      - compliance
+    promote_value_streams:
+      - Conduct Audit
+      - Support External Audit
+    related_value_streams:
+      - Ensure Compliance
+      - Manage Enterprise Risk
+    weight: 0.85
+    min_signal_strength: 0.55
+
+  regulatory_reporting:
+    description: >
+      Regulatory filings, state and federal reporting, CMS submissions,
+      and compliance reporting obligations.
+    direct_cues:
+      - regulatory report
+      - state filing
+      - cms submission
+      - federal filing
+      - regulatory filing
+      - aca reporting
+      - 1095
+    indirect_cues:
+      - compliance submission
+      - state mandate
+      - regulatory deadline
+      - government report
+    canonical_functions:
+      - compliance
+      - reporting
+    promote_value_streams:
+      - File Regulatory Reports
+    related_value_streams:
+      - Ensure Compliance
+    weight: 0.85
+    min_signal_strength: 0.55
+
+  privacy_incident:
+    description: >
+      Privacy incident response, data breach notification,
+      HIPAA breach, and privacy violation resolution.
+    direct_cues:
+      - privacy incident
+      - data breach
+      - breach notification
+      - hipaa breach
+      - privacy violation
+      - unauthorized disclosure
+    indirect_cues:
+      - incident response
+      - privacy investigation
+      - breach assessment
+      - notification obligation
+    canonical_functions:
+      - compliance
+    promote_value_streams:
+      - Resolve Privacy Incident
+    related_value_streams:
+      - Ensure Compliance
+      - Manage Enterprise Risk
+    weight: 0.9
+    min_signal_strength: 0.6
+
+  # ---------------------------------------------------------
+  # IT
+  # ---------------------------------------------------------
+
+  it_strategy:
+    description: >
+      IT strategy, technology roadmap, enterprise architecture,
+      digital transformation, and IT portfolio planning.
+    direct_cues:
+      - it strategy
+      - technology roadmap
+      - enterprise architecture
+      - digital transformation
+      - it portfolio
+      - technology strategy
+      - it planning
+    indirect_cues:
+      - tech modernization
+      - it governance
+      - architecture review
+      - platform strategy
+    canonical_functions:
+      - reporting
+    promote_value_streams:
+      - Align and Execute IT Strategy
+    related_value_streams:
+      - Detect and Correct IT Issues
+    weight: 0.75
+    min_signal_strength: 0.55
+
+  it_incident_management:
+    description: >
+      IT incident detection, problem management, defect correction,
+      system outage response, and IT issue resolution.
+    direct_cues:
+      - it incident
+      - defect
+      - system outage
+      - it issue
+      - bug fix
+      - production issue
+      - incident management
+    indirect_cues:
+      - system downtime
+      - it problem
+      - service restoration
+      - root cause analysis
+    canonical_functions:
+      - request handling
+    promote_value_streams:
+      - Detect and Correct IT Issues
+    related_value_streams:
+      - Align and Execute IT Strategy
+    weight: 0.8
+    min_signal_strength: 0.55
+
+  it_support:
+    description: >
+      IT helpdesk, service desk, end-user support, IT request fulfillment,
+      and IT service management.
+    direct_cues:
+      - helpdesk
+      - service desk
+      - it support
+      - end user support
+      - it service management
+      - itsm
+      - service request
+    indirect_cues:
+      - user request
+      - it assistance
+      - technical support
+      - it ticket
+    canonical_functions:
+      - request handling
+    promote_value_streams:
+      - Fulfill Request for IT Support
+    related_value_streams:
+      - Detect and Correct IT Issues
+    weight: 0.8
+    min_signal_strength: 0.5
+
+  # ---------------------------------------------------------
+  # Human Resources
+  # ---------------------------------------------------------
+
+  hr_career_development:
+    description: >
+      Employee career development, learning and development,
+      performance management, and talent development.
+    direct_cues:
+      - career development
+      - learning and development
+      - performance management
+      - talent development
+      - employee training
+      - succession planning
+    indirect_cues:
+      - employee growth
+      - skills development
+      - career path
+      - leadership development
+    canonical_functions:
+      - onboarding
+    promote_value_streams:
+      - Develop Human Resource Career
+    related_value_streams:
+      - Manage Workforce
+      - Onboard Human Resource
+    weight: 0.7
+    min_signal_strength: 0.55
+
+  strategy_planning:
+    description: >
+      Mission, vision, corporate strategy, strategic planning,
+      business objective setting, and organizational direction.
+    direct_cues:
+      - mission
+      - vision
+      - strategic plan
+      - corporate strategy
+      - business objective
+      - strategic initiative
+      - organizational strategy
+    indirect_cues:
+      - strategic alignment
+      - business direction
+      - organizational goal
+      - strategic priority
+    canonical_functions:
+      - reporting
+    promote_value_streams:
+      - Develop Mission, Vision, and Strategy
+    related_value_streams:
+      - Align and Execute IT Strategy
+    weight: 0.7
+    min_signal_strength: 0.55
+
+  workforce_management:
+    description: >
+      Workforce planning, staffing, capacity management,
+      resource planning, and headcount management.
+    direct_cues:
+      - workforce
+      - staffing
+      - headcount
+      - capacity planning
+      - resource planning
+      - workforce management
+    indirect_cues:
+      - staff planning
+      - workforce optimization
+      - resource allocation
+      - labor management
+    canonical_functions:
+      - reporting
+    promote_value_streams:
+      - Manage Workforce
+    related_value_streams:
+      - Develop Human Resource Career
+      - Pay Employee
+    weight: 0.7
+    min_signal_strength: 0.55
+
+  hr_onboarding:
+    description: >
+      Employee onboarding, new hire setup, HR onboarding process,
+      and new employee orientation.
+    direct_cues:
+      - employee onboarding
+      - hr onboarding
+      - new hire
+      - new employee
+      - onboarding process
+      - orientation
+    indirect_cues:
+      - employee setup
+      - new hire orientation
+      - badge access
+      - i-9 verification
+    canonical_functions:
+      - onboarding
+    promote_value_streams:
+      - Onboard Human Resource
+    related_value_streams:
+      - Manage Workforce
+      - Develop Human Resource Career
+    weight: 0.7
+    min_signal_strength: 0.55
+
+  payroll:
+    description: >
+      Employee payroll, compensation, salary processing,
+      payroll administration, and employee pay.
+    direct_cues:
+      - payroll
+      - employee pay
+      - salary
+      - compensation
+      - pay cycle
+      - payroll processing
+    indirect_cues:
+      - wage
+      - pay stub
+      - direct deposit
+      - payroll tax
+    canonical_functions:
+      - reporting
+    promote_value_streams:
+      - Pay Employee
+    related_value_streams:
+      - Manage Workforce
+    weight: 0.7
     min_signal_strength: 0.55

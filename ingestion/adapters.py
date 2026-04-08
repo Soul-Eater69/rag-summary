@@ -2,10 +2,10 @@
 Adapter layer (V5 architecture).
 
 Thin Protocol interfaces for the three external service dependencies:
-  - LLMService: text generation (wraps src.services.generation_service)
-  - EmbeddingService: vector embeddings (wraps src.clients.embedding)
-  - KGRetrievalService: knowledge-graph candidate retrieval (wraps
-    src.pipelines.value_stream.retrieval_pipeline)
+- LLMService: text generation (wraps src.services.generation_service)
+- EmbeddingService: vector embeddings (wraps src.clients.embedding)
+- KGRetrievalService: knowledge-graph candidate retrieval (wraps
+  src.pipelines.value_stream.retrieval_pipeline)
 
 Usage
 -----
@@ -34,12 +34,11 @@ adapters module itself is importable even when src.* is absent.
 from __future__ import annotations
 
 import logging
-from typing import Any, List, Optional, Protocol, Type, TypeVar, runtime_checkable
+from typing import Any, Callable, List, Optional, Protocol, Type, TypeVar, runtime_checkable
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
-
 
 # ---------------------------------------------------------------------------
 # Protocols (structural interfaces)
@@ -117,7 +116,7 @@ class ThemeRetrievalService(Protocol):
     Theme-cluster candidate retrieval interface.
 
     Implementations should return candidates shaped as:
-      {"entity_name": str, "score": float, "theme_cluster": str, "description": str}
+    {"entity_name": str, "score": float, "theme_cluster": str, "description": str}
 
     The default implementation (_NoopThemeService) returns an empty list.
     Wire a real implementation to activate the theme evidence source.
@@ -169,7 +168,6 @@ class RawEvidenceService(Protocol):
     ) -> List[dict]:
         ...
 
-
 # ---------------------------------------------------------------------------
 # Default factory functions (lazy import from src.*)
 # ---------------------------------------------------------------------------
@@ -209,7 +207,7 @@ def get_default_kg() -> KGRetrievalService:
 
 class _NoopThemeService:
     """
-    Default theme retrieval service — inactive until a real implementation is wired.
+    Default theme retrieval service - inactive until a real implementation is wired.
 
     Returns an empty list so the theme source slot stays at 0 without errors.
     Replace with a real ThemeRetrievalService implementation to activate.
@@ -237,9 +235,9 @@ def get_default_theme() -> ThemeRetrievalService:
     Return the default theme service, configured by config/theme_source.yaml.
 
     Resolution order (when no explicit _theme_svc is injected):
-      1. If backend=faiss (or auto) and FAISS index exists → FaissThemeRetrievalService
-      2. If backend=keyword (or auto, no index) → KeywordThemeService (always active)
-      3. If backend=noop or enabled=false → _NoopThemeService
+    1. If backend=faiss (or auto) and FAISS index exists -> FaissThemeRetrievalService
+    2. If backend=keyword (or auto, no index) -> KeywordThemeService (always active)
+    3. If backend=noop or enabled=false -> _NoopThemeService
 
     This means theme evidence is never silently zero on a fresh repo:
     KeywordThemeService activates immediately using capability map cues.
@@ -286,7 +284,6 @@ def get_default_theme() -> ThemeRetrievalService:
 
     return _NoopThemeService()  # type: ignore[return-value]
 
-
 # ---------------------------------------------------------------------------
 # Structured output helper
 # ---------------------------------------------------------------------------
@@ -298,6 +295,7 @@ def structured_generate(
     *,
     context: str = "",
     system_prompt: str = "",
+    debug_callback: Optional[Callable[[dict[str, Any]], None]] = None,
 ) -> T:
     """
     Generate with structured output binding.
@@ -311,11 +309,11 @@ def structured_generate(
     fields to produce even when the prompt itself omits the full skeleton.
 
     Args:
-        svc:           LLMService (or StructuredLLMService) instance.
-        query:         Rendered user-prompt text.
-        output_schema: Pydantic BaseModel subclass to validate against.
-        context:       Optional context string passed to the LLM.
-        system_prompt: System prompt text.
+        svc:             LLMService (or StructuredLLMService) instance.
+        query:           Rendered user-prompt text.
+        output_schema:   Pydantic BaseModel subclass to validate against.
+        context:         Optional context string passed to the LLM.
+        system_prompt:   System prompt text.
 
     Returns:
         A validated instance of output_schema.
@@ -332,6 +330,17 @@ def structured_generate(
                 context=context,
                 system_prompt=system_prompt,
             )
+            if debug_callback is not None:
+                debug_callback(
+                    {
+                        "path": "native_structured",
+                        "query": query,
+                        "context": context,
+                        "system_prompt": system_prompt,
+                        "result_type": type(result).__name__,
+                        "result": result.model_dump() if hasattr(result, "model_dump") else result,
+                    }
+                )
             if isinstance(result, output_schema):
                 return result
         except Exception as exc:
@@ -344,6 +353,19 @@ def structured_generate(
     reply = svc.generate(augmented_query, context=context, system_prompt=system_prompt)
     raw_text = reply.content if hasattr(reply, "content") else str(reply)
     parsed = safe_json_extract(raw_text)
+
+    if debug_callback is not None:
+        debug_callback(
+            {
+                "path": "fallback_generate",
+                "query": query,
+                "augmented_query": augmented_query,
+                "context": context,
+                "system_prompt": system_prompt,
+                "raw_text": raw_text,
+                "parsed": parsed,
+            }
+        )
 
     try:
         if isinstance(parsed, list):
@@ -373,7 +395,7 @@ def _build_schema_hint(schema: type) -> str:
         if not (isinstance(schema, type) and issubclass(schema, BaseModel)):
             return ""
         fields = list(schema.model_fields.keys())
-        return f"Return a JSON object with these fields: {', '.join(fields)}"
+        return f"Return a JSON object with these fields: {{', '.join(fields)}}"
     except Exception:
         return ""
 
@@ -394,7 +416,6 @@ def _find_list_field(schema: type) -> Optional[str]:
     except Exception:
         return None
 
-
 # ---------------------------------------------------------------------------
 # Utility: safe JSON extraction (wraps core.prompts)
 # ---------------------------------------------------------------------------
@@ -411,6 +432,7 @@ def safe_json_extract(text: str) -> Any:
         return _core_extract(text)
     except Exception:
         pass
+
     # Fallback: find the first {...} or [...] block and parse it
     import json
     import re

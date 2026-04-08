@@ -9,30 +9,31 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 class SupportedStream(BaseModel):
     """A value stream with sufficient evidence to support it."""
 
-    entity_name: str
-    entity_id: str = ""
-    confidence: float
-    evidence: str = ""
-    # V6: pattern basis for pattern_inferred streams
-    pattern_basis: Optional[str] = None         # "analog_similarity" | "bundle_pattern" |
-                                                 # "downstream_chain" | "capability_overlap" | "theme"
-    supporting_analog_ids: Optional[List[str]] = None   # ticket IDs that drove this inference
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
 
-    class Config:
-        extra = "allow"
+    entity_name: str = Field(validation_alias=AliasChoices("entity_name", "name"))
+    entity_id: str = Field(default="", validation_alias=AliasChoices("entity_id", "id"))
+    confidence: float
+    evidence: str = Field(default="", validation_alias=AliasChoices("evidence", "reason", "rationale"))
+    # V6: pattern basis for pattern_inferred streams
+    pattern_basis: Optional[str] = None       # "analog_similarity" | "bundle_pattern" |
+                                              # "downstream_chain" | "capability_overlap" | "theme"
+    supporting_analog_ids: Optional[List[str]] = None  # ticket IDs that drove this inference
 
 
 class UnsupportedStream(BaseModel):
     """A candidate value stream lacking sufficient evidence."""
 
-    entity_name: str
-    reason: str = ""
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
+
+    entity_name: str = Field(validation_alias=AliasChoices("entity_name", "name"))
+    reason: str = Field(default="", validation_alias=AliasChoices("reason", "evidence", "rationale"))
 
 
 class SelectionResult(BaseModel):

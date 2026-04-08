@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Dict, List, Optional
+import copy
 
 from rag_summary.ingestion.adapters import (
     LLMService,
@@ -24,13 +25,12 @@ from rag_summary.ingestion.adapters import (
     structured_generate,
 )
 from rag_summary.ingestion.function_normalizer import normalize_functions
-from rag_summary.models.summary_doc import SummaryDoc
-from .prompt_loader import load_prompt, render_prompt
+from rag_summary.models.summary_doc import CardSummaryDoc, SummaryDoc
+from _prompt_loader import load_prompt, render_prompt
 
 logger = logging.getLogger(__name__)
 
-
-def _enrich_with_canonical(summary: SummaryDoc) -> SummaryDoc:
+def _enrich_with_canonical(summary: CardSummaryDoc) -> CardSummaryDoc:
     """Normalize raw function lists to canonical vocabulary, in-place."""
     canon_direct = normalize_functions(summary.direct_functions_raw)
     canon_implied = normalize_functions(summary.implied_functions_raw)
@@ -42,7 +42,6 @@ def _enrich_with_canonical(summary: SummaryDoc) -> SummaryDoc:
     if not summary.implied_functions:
         summary.implied_functions = canon_implied
     return summary
-
 
 class SummaryChain:
     """
@@ -66,6 +65,8 @@ class SummaryChain:
         self._prompt_version = prompt_version
         self._historical_prompt = load_prompt("historical_summary", version=prompt_version)
         self._card_prompt = load_prompt("idea_card_summary", version=prompt_version)
+        self.last_prompt_payload: Dict[str, str] = {}
+        self.last_debug_payload: Dict[str, Any] = {}
 
     @property
     def llm(self) -> LLMService:
@@ -93,8 +94,10 @@ class SummaryChain:
             },
             role="user",
         )
+        self.last_prompt_payload = {"system": system, "user": user}
+        self.last_debug_payload = {}
 
-        doc = self._call_structured(system=system, user=user)
+        doc = self._call_structured(system=system, user=user, output_schema=SummaryDoc)
 
         # Overlay stable identifiers not extracted by LLM
         doc.doc_id = f"summary_{ticket_id}"
@@ -106,7 +109,7 @@ class SummaryChain:
         _enrich_with_canonical(doc)
         return doc
 
-    def run_card(self, *, card_text: str) -> SummaryDoc:
+    def run_card(self, *, card_text: str) -> CardSummaryDoc:
         """Generate a structured summary for a new idea card."""
         system = self._card_prompt["system"]
         user = render_prompt(
@@ -114,24 +117,36 @@ class SummaryChain:
             {"card_text": card_text},
             role="user",
         )
+        self.last_prompt_payload = {"system": system, "user": user}
+        self.last_debug_payload = {}
 
-        doc = self._call_structured(system=system, user=user)
+        doc = self._call_structured(system=system, user=user, output_schema=CardSummaryDoc)
         doc.doc_id = "new_idea_card_summary"
         doc.ticket_id = ""
 
         _enrich_with_canonical(doc)
         return doc
 
-    def _call_structured(self, *, system: str, user: str) -> SummaryDoc:
-        """Call LLM and return a validated SummaryDoc. Falls back to empty doc on failure."""
+    def _call_structured(
+        self,
+        *,
+        system: str,
+        user: str,
+        output_schema: type[CardSummaryDoc] | type[SummaryDoc],
+    ) -> CardSummaryDoc | SummaryDoc:
+        """Call LLM and return a validated summary model. Falls back to empty doc on failure."""
         try:
             return structured_generate(
                 self.llm,
                 user,
-                SummaryDoc,
+                output_schema,
                 context="",
                 system_prompt=system,
+                debug_callback=self._capture_debug,
             )
         except Exception as exc:
             logger.error("[SummaryChain] structured_generate failed: %s", exc)
-            return SummaryDoc()
+            return output_schema()
+
+    def _capture_debug(self, payload: Dict[str, Any]) -> None:
+        self.last_debug_payload = copy.deepcopy(payload or {})

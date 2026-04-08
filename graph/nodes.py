@@ -5,27 +5,27 @@ Each node takes a PredictionState dict, performs its step, and returns
 a partial state dict with updated keys. LangGraph merges the returned
 dict into the running state.
 
-Node order (V6 — 14 nodes):
+Node order (V6 - 14 nodes):
   clean_and_summarize
-  → retrieve_analogs
-  → collect_vs_evidence      (+ bundle_patterns, downstream_chains)
-  → retrieve_kg
-  → retrieve_themes          (auto-discovers FAISS index if present)
-  → map_capabilities
-  → extract_card_candidates
-  → collect_raw_evidence
-  → parse_attachments        (V6: section-level parsing → attachment_native_candidates)
-  → build_evidence           (merges all 7 sources)
-  → fuse_scores
-  → verify_candidates        (Pass 1)
-  → finalize_selection       (Pass 2)
-  → finalize_output
+  + retrieve_analogs
+  + collect_vs_evidence      (+ bundle_patterns, downstream_chains)
+  + retrieve_kg              (auto discovers FAISS index if present)
+  + retrieve_themes
+  + map_capabilities
+  + extract_card_candidates
+  + collect_raw_evidence
+  + parse_attachments        (V6: section-level parsing + attachment_native_candidates)
+  + build_evidence           (merges all 7 sources)
+  + fuse_scores
+  + verify_candidates        (Pass 1)
+  + finalize_selection       (Pass 2)
+  + finalize_output
 
 Service resolution:
-  Nodes pull services from state using _get_services(state). This checks:
-    1. _services key (ServiceContainer instance) — preferred, used by tests
-    2. Individual _llm, _theme_svc keys — backward-compatible injection
-    3. Default factories (get_default_llm, etc.) — production fallback
+Nodes pull services from state using _get_services(state). This checks:
+  1. _services key (ServiceContainer instance) - preferred, used by tests
+  2. Individual _llm, _theme_svc keys - backward-compatible injection
+  3. Default factories (get_default_llm, etc.) - production fallback
 """
 
 from __future__ import annotations
@@ -48,6 +48,7 @@ from rag_summary.ingestion.adapters import (
     clean_card_text,
     normalize_text as _norm_text,
 )
+
 from rag_summary.ingestion.function_normalizer import normalize_functions
 from rag_summary.ingestion.faiss_indexer import DEFAULT_INDEX_DIR
 from rag_summary.retrieval import (
@@ -81,13 +82,12 @@ from rag_summary.generation.attachment_candidates import extract_attachment_nati
 from rag_summary.chains.summary_chain import SummaryChain
 from rag_summary.chains.selector_verify_chain import SelectorVerifyChain
 from rag_summary.chains.selector_finalize_chain import SelectorFinalizeChain
-from rag_summary.models.summary_doc import SummaryDoc
+from rag_summary.models.summary_doc import CardSummaryDoc, SummaryDoc
 from rag_summary.models.candidate_judgment import CandidateJudgment, VerificationResult
 from rag_summary.models.selection import SelectionResult, SupportedStream, UnsupportedStream
 from rag_summary.generation.candidate_evidence import SOURCE_THEME
 
 logger = logging.getLogger(__name__)
-
 
 # ---------------------------------------------------------------------------
 # Service resolution helper
@@ -106,21 +106,21 @@ def _get_services(state: PredictionState) -> Dict[str, Any]:
     intake_date, top_kg_candidates, include_raw_evidence, max_raw_evidence_tickets,
     min_candidate_floor.
     """
-    container = state.get("_services")  # type: ignore[call-overload]
+    container = state.get("_services") # type: ignore[call-overload]
 
     if container is not None:
         # ServiceContainer provides typed service fields
-        llm = container.llm or state.get("_llm") or get_default_llm()  # type: ignore[call-overload]
-        theme_svc = container.theme or state.get("_theme_svc")  # type: ignore[call-overload]
-        index_dir = container.index_dir or state.get("_index_dir", DEFAULT_INDEX_DIR)  # type: ignore[call-overload]
-        ticket_chunks_dir = container.ticket_chunks_dir or state.get("_ticket_chunks_dir", "ticket_chunks")  # type: ignore[call-overload]
-        intake_date = container.intake_date or state.get("_intake_date")  # type: ignore[call-overload]
+        llm = container.llm or state.get("_llm") or get_default_llm() # type: ignore[call-overload]
+        theme_svc = container.theme or state.get("_theme_svc") # type: ignore[call-overload]
+        index_dir = container.index_dir or state.get("_index_dir", DEFAULT_INDEX_DIR) # type: ignore[call-overload]
+        ticket_chunks_dir = container.ticket_chunks_dir or state.get("_ticket_chunks_dir", "ticket_chunks") # type: ignore[call-overload]
+        intake_date = container.intake_date or state.get("_intake_date") # type: ignore[call-overload]
     else:
-        llm = state.get("_llm") or get_default_llm()  # type: ignore[call-overload]
-        theme_svc = state.get("_theme_svc")  # type: ignore[call-overload]
-        index_dir = state.get("_index_dir", DEFAULT_INDEX_DIR)  # type: ignore[call-overload]
-        ticket_chunks_dir = state.get("_ticket_chunks_dir", "ticket_chunks")  # type: ignore[call-overload]
-        intake_date = state.get("_intake_date")  # type: ignore[call-overload]
+        llm = state.get("_llm") or get_default_llm() # type: ignore[call-overload]
+        theme_svc = state.get("_theme_svc") # type: ignore[call-overload]
+        index_dir = state.get("_index_dir", DEFAULT_INDEX_DIR) # type: ignore[call-overload]
+        ticket_chunks_dir = state.get("_ticket_chunks_dir", "ticket_chunks") # type: ignore[call-overload]
+        intake_date = state.get("_intake_date") # type: ignore[call-overload]
 
     return {
         "llm": llm,
@@ -128,15 +128,14 @@ def _get_services(state: PredictionState) -> Dict[str, Any]:
         "index_dir": index_dir,
         "ticket_chunks_dir": ticket_chunks_dir,
         "intake_date": intake_date,
-        "top_kg_candidates": state.get("_top_kg_candidates", 20),  # type: ignore[call-overload]
-        "include_raw_evidence": state.get("_include_raw_evidence", True),  # type: ignore[call-overload]
-        "max_raw_evidence_tickets": state.get("_max_raw_evidence_tickets", 3),  # type: ignore[call-overload]
-        "min_candidate_floor": state.get("_min_candidate_floor", 8),  # type: ignore[call-overload]
+        "top_kg_candidates": state.get("_top_kg_candidates", 20), # type: ignore[call-overload]
+        "include_raw_evidence": state.get("_include_raw_evidence", True), # type: ignore[call-overload]
+        "max_raw_evidence_tickets": state.get("_max_raw_evidence_tickets", 3), # type: ignore[call-overload]
+        "min_candidate_floor": state.get("_min_candidate_floor", 8), # type: ignore[call-overload]
     }
 
-_VSR_SUFFIX_RE = re.compile(r"\s*(\s*VSR[0-9A-Z-]*\s*)\s*$", re.IGNORECASE)
-_EMPTY_PARENS_SUFFIX_RE = re.compile(r"\s*\(\s*\)\s*$")
-
+_VSR_SUFFIX_RE = re.compile(r"\s+\(VSR[0-9A-Z-]+\)$", re.IGNORECASE)
+_EMPTY_PARENS_SUFFIX_RE = re.compile(r"\s+\(\)$")
 
 def _clean_vs_name(name: str) -> str:
     cleaned = (name or "").strip()
@@ -144,9 +143,8 @@ def _clean_vs_name(name: str) -> str:
         return ""
     cleaned = _VSR_SUFFIX_RE.sub("", cleaned)
     cleaned = _EMPTY_PARENS_SUFFIX_RE.sub("", cleaned)
-    cleaned = re.sub(r"\(-\)", "", cleaned).strip(" -")
+    cleaned = re.sub(r"\(-\)$", "", cleaned).strip()
     return cleaned
-
 
 def _normalize_kg_score(candidate: Dict[str, Any]) -> float:
     raw = float(candidate.get("score") or candidate.get("best_score") or 0.0)
@@ -154,13 +152,12 @@ def _normalize_kg_score(candidate: Dict[str, Any]) -> float:
         return max(0.0, raw)
     return min(1.0, raw / (raw + 10.0))
 
-
 def _inject_summary_candidates(
     candidate_evidence: List[Dict[str, Any]],
     summary_candidates: List[Dict[str, Any]],
 ) -> None:
     """Merge summary-source candidates into existing CandidateEvidence objects."""
-    by_name = {_norm_text(c.get("candidate_name", "")): c for c in candidate_evidence}
+    by_name = { _norm_text(c.get("candidate_name", "")): c for c in candidate_evidence }
 
     for sc in summary_candidates:
         name = (sc.get("entity_name") or "").strip()
@@ -196,7 +193,6 @@ def _inject_summary_candidates(
     for entry in candidate_evidence:
         entry["support_type"] = _classify_support_type(entry)
 
-
 def _inject_footprint_patterns(
     candidate_evidence: List[Dict[str, Any]],
     bundle_patterns: List[Dict[str, Any]],
@@ -213,7 +209,7 @@ def _inject_footprint_patterns(
     downstream_vs is an existing candidate, add a sub_source=downstream_chain snippet.
     """
     from rag_summary.generation.candidate_evidence import SOURCE_HISTORICAL
-    by_name = {_norm_text(c.get("candidate_name", "")): c for c in candidate_evidence}
+    by_name = { _norm_text(c.get("candidate_name", "")): c for c in candidate_evidence }
 
     for bp in bundle_patterns:
         bundled = (bp.get("bundled_vs") or "").strip()
@@ -261,7 +257,7 @@ def _inject_footprint_patterns(
                 f"Downstream activation: '{up_vs}' typically leads to this "
                 f"stream in {analog_count} analog(s)"
             ),
-            "score": 0.18,
+            "score": 0.10,
             "sub_source": "downstream_chain",
         })
         entry["downstream_chain_count"] = entry.get("downstream_chain_count", 0) + 1
@@ -274,10 +270,24 @@ def _inject_footprint_patterns(
             entry.get("historical_downstream_score", 0.0) + 0.08, 4
         )
 
-
 # ---------------------------------------------------------------------------
 # Node functions
 # ---------------------------------------------------------------------------
+
+def _summary_has_signal(summary_doc: SummaryDoc) -> bool:
+    return any(
+        [
+            bool((summary_doc.short_summary or "").strip()),
+            bool((summary_doc.business_goal or "").strip()),
+            bool(summary_doc.actors),
+            bool(summary_doc.direct_functions_raw),
+            bool(summary_doc.direct_functions_canonical),
+            bool(summary_doc.capability_tags),
+            bool(summary_doc.operational_footprint),
+            bool(summary_doc.domain_tags),
+            bool(summary_doc.evidence_sentences),
+        ]
+    )
 
 def node_clean_and_summarize(state: PredictionState) -> Dict[str, Any]:
     """Step 1: Clean card text and generate semantic summary. Returns SummaryDoc."""
@@ -295,26 +305,48 @@ def node_clean_and_summarize(state: PredictionState) -> Dict[str, Any]:
     chain = SummaryChain(llm=svc["llm"])
 
     try:
-        summary_doc: SummaryDoc = chain.run_card(card_text=cleaned_text)
+        summary_doc: CardSummaryDoc = chain.run_card(card_text=cleaned_text)
+        if not _summary_has_signal(summary_doc):
+            logger.warning("[node_clean_and_summarize] Summary returned but empty; using deterministic fallback")
+            fb = _deterministic_fallback_summary(cleaned_text)
+            try:
+                summary_doc = CardSummaryDoc(**fb)
+            except Exception:
+                summary_doc = CardSummaryDoc()
+            warnings = list(state.get("warnings", []))
+            warnings.append("summary_generation_empty")
+            return {
+                "cleaned_text": cleaned_text,
+                "new_card_summary": summary_doc.model_dump(),
+                "summary_prompt": dict(chain.last_prompt_payload),
+                "summary_debug": dict(chain.last_debug_payload),
+                "warnings": warnings,
+            }
     except Exception as exc:
-        logger.error("[node_clean_and_summarize] Summary failed: %s", exc)
+        logger.error("[node_clean_and_summarize] Summary failed (%s): %s", type(exc).__name__, exc)
         fb = _deterministic_fallback_summary(cleaned_text)
         try:
-            summary_doc = SummaryDoc(**fb)
+            summary_doc = CardSummaryDoc(**fb)
         except Exception:
-            summary_doc = SummaryDoc()
+            summary_doc = CardSummaryDoc()
         warnings = list(state.get("warnings", []))
-        warnings.append(f"summary_generation_failed: {type(exc).__name__}")
+        warnings.append(f"summary_generation_failed: {type(exc).__name__}: {exc}")
         return {
             "cleaned_text": cleaned_text,
             "new_card_summary": summary_doc.model_dump(),
+            "summary_prompt": dict(chain.last_prompt_payload),
+            "summary_debug": dict(chain.last_debug_payload),
             "warnings": warnings,
         }
 
     logger.info("[node_clean_and_summarize] done in %.2fs", time.time() - t)
     # Serialize to dict for state transport; nodes consume from state as dicts
-    return {"cleaned_text": cleaned_text, "new_card_summary": summary_doc.model_dump()}
-
+    return {
+        "cleaned_text": cleaned_text,
+        "new_card_summary": summary_doc.model_dump(),
+        "summary_prompt": dict(chain.last_prompt_payload),
+        "summary_debug": dict(chain.last_debug_payload),
+    }
 
 def node_retrieve_analogs(state: PredictionState) -> Dict[str, Any]:
     """Step 2: Search FAISS for top analog historical tickets."""
@@ -333,18 +365,17 @@ def node_retrieve_analogs(state: PredictionState) -> Dict[str, Any]:
     except Exception as exc:
         logger.error("[node_retrieve_analogs] FAISS search failed: %s", exc)
         warnings = list(state.get("warnings", []))
-        warnings.append(f"faiss_search_failed: {type(exc).__name__}")
+        warnings.append(f"faiss_search_failed: {type(exc).__name__}: {exc}")
         return {"analog_tickets": [], "warnings": warnings}
 
     logger.info("[node_retrieve_analogs] done in %.2fs | %d analogs", time.time() - t, len(analog_tickets))
     return {"analog_tickets": analog_tickets}
 
-
 def node_collect_vs_evidence(state: PredictionState) -> Dict[str, Any]:
     """Step 3: Collect VS evidence from analog tickets.
 
     V6: Also detects bundle patterns and downstream chains across the analog set.
-    Bundle patterns: VS pairs that co-occur in ≥60% of analogs.
+    Bundle patterns: VS pairs that co-occur in >=60% of analogs.
     Downstream chains: VS entries consistently activated downstream of direct ones.
     """
     t = time.time()
@@ -377,7 +408,6 @@ def node_collect_vs_evidence(state: PredictionState) -> Dict[str, Any]:
         "downstream_chains": downstream_chains,
     }
 
-
 def node_retrieve_kg(state: PredictionState) -> Dict[str, Any]:
     """Step 4: Retrieve KG candidate value streams."""
     t = time.time()
@@ -400,20 +430,19 @@ def node_retrieve_kg(state: PredictionState) -> Dict[str, Any]:
     except Exception as exc:
         logger.error("[node_retrieve_kg] KG retrieval failed: %s", exc)
         warnings = list(state.get("warnings", []))
-        warnings.append(f"kg_retrieval_failed: {type(exc).__name__}")
+        warnings.append(f"kg_retrieval_failed: {type(exc).__name__}: {exc}")
         return {"kg_candidates": [], "warnings": warnings}
 
     logger.info("[node_retrieve_kg] done in %.2fs | %d candidates", time.time() - t, len(kg_candidates))
     return {"kg_candidates": kg_candidates}
-
 
 def node_retrieve_themes(state: PredictionState) -> Dict[str, Any]:
     """
     Step 4b: Retrieve theme-cluster candidates via ThemeRetrievalService.
 
     Inactive by default (_NoopThemeService returns []). To activate:
-      - Implement ThemeRetrievalService (see ingestion/adapters.py)
-      - Pass it as _theme_svc in the initial state or via run_prediction_graph()
+    - Implement ThemeRetrievalService (see ingestion/adapters.py)
+    - Pass it as _theme_svc in the initial state or via run_prediction_graph()
 
     When active, theme candidates feed directly into the SOURCE_THEME slot in
     CandidateEvidence, adding a seventh independent evidence dimension.
@@ -436,10 +465,10 @@ def node_retrieve_themes(state: PredictionState) -> Dict[str, Any]:
         if _theme_index_file.exists():
             try:
                 from rag_summary.ingestion.theme_retrieval_service import FaissThemeRetrievalService
-                from rag_summary.ingestion.adapters import get_default_embedding
+                from rag_summary.ingestion.adapters import import_get_default_embedding
                 theme_svc = FaissThemeRetrievalService(
                     theme_index_dir=_default_theme_dir,
-                    embedding_svc=get_default_embedding(),
+                    embedding_svc=import_get_default_embedding(),
                 )
                 logger.info(
                     "[node_retrieve_themes] Auto-loaded FaissThemeRetrievalService from %s",
@@ -448,12 +477,13 @@ def node_retrieve_themes(state: PredictionState) -> Dict[str, Any]:
             except Exception as _exc:
                 logger.warning("[node_retrieve_themes] Auto-load failed: %s", _exc)
                 theme_svc = None
+
     if theme_svc is None:
-        # Final fallback: keyword-based theme service — always active, no setup needed
+        # Final fallback: keyword-based theme service - always active, no setup needed
         from rag_summary.ingestion.keyword_theme_service import KeywordThemeService
         theme_svc = KeywordThemeService()
         logger.debug(
-            "[node_retrieve_themes] No theme index found — using KeywordThemeService fallback"
+            "[node_retrieve_themes] No theme index found - using KeywordThemeService fallback"
         )
 
     from rag_summary.ingestion import build_retrieval_text
@@ -462,14 +492,14 @@ def node_retrieve_themes(state: PredictionState) -> Dict[str, Any]:
     theme_candidates: List[Dict[str, Any]] = []
     try:
         import inspect as _inspect
-        _sig = _inspect.signature(theme_svc.retrieve_theme_candidates)  # type: ignore[union-attr]
+        _sig = _inspect.signature(theme_svc.retrieve_theme_candidates) # type: ignore[union-attr]
         _kwargs: Dict[str, Any] = {
             "top_k": 10,
             "allowed_names": list(allowed_names) if allowed_names else None,
         }
         if "cutoff_date" in _sig.parameters and intake_date:
             _kwargs["cutoff_date"] = intake_date
-        raw = theme_svc.retrieve_theme_candidates(query, **_kwargs)  # type: ignore[union-attr]
+        raw = theme_svc.retrieve_theme_candidates(query, **_kwargs) # type: ignore[union-attr]
         theme_candidates = raw or []
     except Exception as exc:
         logger.warning("[node_retrieve_themes] Failed: %s", exc)
@@ -482,6 +512,7 @@ def node_retrieve_themes(state: PredictionState) -> Dict[str, Any]:
         "max_score": round(max((c.get("score", 0.0) for c in theme_candidates), default=0.0), 4),
         "intake_date_cutoff_applied": bool(intake_date),
     }
+
     theme_debug = {
         "service_class": type(theme_svc).__name__,
         "query_length": len(query),
@@ -493,7 +524,7 @@ def node_retrieve_themes(state: PredictionState) -> Dict[str, Any]:
                 "vs_support_fraction": c.get("vs_support_fraction", 0.0),
             }
             for c in theme_candidates[:5]  # top 5 only
-        ],
+        ]
     }
 
     if theme_candidates:
@@ -504,7 +535,7 @@ def node_retrieve_themes(state: PredictionState) -> Dict[str, Any]:
         )
     else:
         logger.debug(
-            "[node_retrieve_themes] 0 candidates (backend=%s) — "
+            "[node_retrieve_themes] 0 candidates (backend=%s) - "
             "run build_theme_index.py to activate FAISS themes",
             theme_source_status["backend"],
         )
@@ -514,7 +545,6 @@ def node_retrieve_themes(state: PredictionState) -> Dict[str, Any]:
         "theme_source_status": theme_source_status,
         "theme_debug": theme_debug,
     }
-
 
 def node_map_capabilities(state: PredictionState) -> Dict[str, Any]:
     """Step 5: Capability mapping and candidate enrichment."""
@@ -532,6 +562,7 @@ def node_map_capabilities(state: PredictionState) -> Dict[str, Any]:
         candidates=kg_candidates,
         allowed_value_stream_names=allowed_names,
     )
+
     enriched_candidates = capability_mapping.get("enriched_candidates", kg_candidates)
     logger.info(
         "[node_map_capabilities] done in %.2fs | hits=%d | promoted=%d",
@@ -544,16 +575,15 @@ def node_map_capabilities(state: PredictionState) -> Dict[str, Any]:
         "enriched_candidates": enriched_candidates,
     }
 
-
 def node_extract_card_candidates(state: PredictionState) -> Dict[str, Any]:
     """
     Step 5b: Extract card-native candidates from the new card's own content.
 
     Four extraction paths (all LLM-free):
-    - summary_candidates: capability_tags + canonical functions → capability map
-    - chunk_candidates: cue term scan over cleaned card text → capability map
-    - card_attachment_candidates: attachment indicators × domain cues → attachment source
-    - footprint_candidates: analog capability_tags × capability map → pattern signals
+    - summary_candidates: capability_tags + canonical_functions + capability map
+    - chunk_candidates: cue term scan over cleaned card text -> capability map
+    - card_attachment_candidates: attachment indicators | domain cues -> attachment source
+    - footprint_candidates: analog capability_tags | capability map | pattern signals
     """
     t = time.time()
     new_card_summary = state.get("new_card_summary", {})
@@ -580,7 +610,6 @@ def node_extract_card_candidates(state: PredictionState) -> Dict[str, Any]:
         "card_attachment_candidates": card_attachment_candidates,
         "historical_footprint_candidates": footprint_candidates,
     }
-
 
 def node_collect_raw_evidence(state: PredictionState) -> Dict[str, Any]:
     """Step 6: Collect raw evidence chunks (must run before build_evidence)."""
@@ -618,25 +647,24 @@ def node_collect_raw_evidence(state: PredictionState) -> Dict[str, Any]:
     )
     return {"raw_evidence": raw_evidence, "attachment_candidates": attachment_candidates}
 
-
 def node_parse_attachments(state: PredictionState) -> Dict[str, Any]:
     """
     Step 6b (V6): Parse attachment content into structured sections.
 
     Two input modes:
-    1. Explicit attachment files: reads _attachment_contents from state —
+    1. Explicit attachment files: reads _attachment_contents from state -
        a list of {"filename": str, "text": str} dicts pre-extracted by the caller.
     2. Card text fallback: scans cleaned_text for exhibit/appendix/table/scope
        structural markers; produces sections from the card body itself.
 
     Outputs:
-      attachment_docs: List[ParsedAttachment.to_dict()] — section-level parsed docs
-      attachment_native_candidates: List[candidate dicts] with sub_source="attachment_native"
+      attachment_docs: list[ParsedAttachment.to_dict()] - section-level parsed docs
+      attachment_native_candidates: list[candidate dicts] with sub_source="attachment_native"
     """
     t = time.time()
     cleaned_text = state.get("cleaned_text", "")
     allowed_names = state.get("allowed_value_stream_names")
-    attachment_contents = state.get("_attachment_contents") or []  # type: ignore[call-overload]
+    attachment_contents = state.get("_attachment_contents") or [] # type: ignore[call-overload]
 
     parser = AttachmentParser()
     extractor = AttachmentExtractor()
@@ -647,7 +675,7 @@ def node_parse_attachments(state: PredictionState) -> Dict[str, Any]:
     for attach in attachment_contents:
         filename = attach.get("filename", "attachment")
         text = attach.get("text", "")
-        raw_content = attach.get("content")  # bytes from binary upload
+        raw_content = attach.get("content") # bytes from binary upload
         meta: Dict[str, Any] = {"filename": filename}
 
         # If no text yet but binary bytes are present, extract via AttachmentExtractor
@@ -674,12 +702,11 @@ def node_parse_attachments(state: PredictionState) -> Dict[str, Any]:
 
         extraction_metadata.append(meta)
 
-        if not text.strip():
-            continue
-        doc = parser.parse_attachment_content(filename, text)
-        parsed_docs.append(doc)
+        if text.strip():
+            doc = parser.parse_attachment_content(filename, text)
+            parsed_docs.append(doc)
 
-    # Mode 2: fallback — extract structural sections from the card text itself
+    # Mode 2: fallback - extract structural sections from the card text itself
     if not parsed_docs and cleaned_text.strip():
         card_doc = parser.parse_card_text(cleaned_text)
         if card_doc:
@@ -704,7 +731,6 @@ def node_parse_attachments(state: PredictionState) -> Dict[str, Any]:
         "attachment_extraction_metadata": extraction_metadata,
     }
 
-
 def node_build_evidence(state: PredictionState) -> Dict[str, Any]:
     """
     Step 7: Build CandidateEvidence objects from all 7 sources.
@@ -713,13 +739,13 @@ def node_build_evidence(state: PredictionState) -> Dict[str, Any]:
     and operational evidence phrases before being merged into CandidateEvidence.
 
     Source mapping:
-      kg          ← KG retrieval candidates
-      historical  ← vs_support (type-weighted) + footprint candidates
-      capability  ← capability_mapping candidates
-      chunk       ← chunk_candidates (card text cue scan)
-      attachment  ← card_attachment_candidates (card-native) + analog proxy candidates
-      summary     ← summary_candidates (injected separately)
-      theme       ← theme_candidates (live if ThemeRetrievalService is wired)
+      kg         = KG retrieval candidates
+      historical = vs_support (type-weighted) + footprint candidates
+      capability = capability_mapping candidates
+      chunk      = chunk_candidates (card text cue scan)
+      attachment = card_attachment_candidates (card-native) + analog proxy candidates
+      summary    = summary_candidates (injected separately)
+      theme      = theme_candidates (live if ThemeRetrievalService is wired)
     """
     t = time.time()
     vs_support = state.get("historical_value_stream_support", [])
@@ -746,7 +772,7 @@ def node_build_evidence(state: PredictionState) -> Dict[str, Any]:
     enriched_vs_support = enrich_historical_candidates(
         vs_support,
         new_card_summary=new_card_summary,
-        analog_summaries=analog_tickets,   # plain dicts; enrich_historical handles them
+        analog_summaries=analog_tickets,  # plain dicts; enrich_historical handles them
     )
     historical_candidates = []
     for s in enriched_vs_support:
@@ -754,7 +780,7 @@ def node_build_evidence(state: PredictionState) -> Dict[str, Any]:
         base_score = float(s.get("score") or 0.0)
 
         # Derive component sub-scores for transparency
-        # semantic_score = base calibrated score from FAISS similarity × type weight
+        # semantic_score = base calibrated score from FAISS similarity x type weight
         # footprint_score = capability overlap contribution
         # These are stored on the candidate for downstream explanation.
         semantic_score = round(base_score * 0.70, 4) if cap_overlap > 0 else base_score
@@ -782,8 +808,8 @@ def node_build_evidence(state: PredictionState) -> Dict[str, Any]:
             # V6: explicit sub-scores for transparency
             "historical_semantic_score": semantic_score,
             "historical_footprint_score": footprint_score,
-            "historical_bundle_score": 0.0,    # filled by _inject_footprint_patterns
-            "historical_downstream_score": 0.0, # filled by _inject_footprint_patterns
+            "historical_bundle_score": 0.0,      # filled by _inject_footprint_patterns
+            "historical_downstream_score": 0.0,  # filled by _inject_footprint_patterns
         })
 
     kg_for_evidence = [
@@ -806,6 +832,7 @@ def node_build_evidence(state: PredictionState) -> Dict[str, Any]:
         attachment_candidates=all_attachment,
         theme_candidates=theme_candidates,
     )
+
     _inject_summary_candidates(candidate_evidence, summary_candidates)
 
     # V6: inject bundle pattern and downstream chain evidence snippets
@@ -824,11 +851,10 @@ def node_build_evidence(state: PredictionState) -> Dict[str, Any]:
     )
     if not active_theme:
         logger.debug(
-            "[node_build_evidence] theme source inactive — wire ThemeRetrievalService to enable"
+            "[node_build_evidence] theme source inactive - wire ThemeRetrievalService to enable"
         )
 
     return {"candidate_evidence": candidate_evidence}
-
 
 def node_fuse_scores(state: PredictionState) -> Dict[str, Any]:
     """Step 8: Source-aware fused ranking + candidate floor + profile selection."""
@@ -856,9 +882,8 @@ def node_fuse_scores(state: PredictionState) -> Dict[str, Any]:
     )
     return {"fused_candidates": fused, "fusion_profile": fusion_profile}
 
-
 def node_verify_candidates(state: PredictionState) -> Dict[str, Any]:
-    """Step 9 (Pass 1): Per-candidate evidence verification → VerificationResult."""
+    """Step 9 (Pass 1): Per-candidate evidence verification -> VerificationResult."""
     t = time.time()
     new_card_summary = state.get("new_card_summary", {})
     analog_tickets = state.get("analog_tickets", [])
@@ -875,22 +900,23 @@ def node_verify_candidates(state: PredictionState) -> Dict[str, Any]:
             if _norm_text(c.get("candidate_name") or c.get("entity_name", "")) in allowed_set
         ]
 
-    chain = SelectorVerifyChain(llm=svc["llm"])  # defaults to v3 prompt
+    chain = SelectorVerifyChain(llm=svc["llm"]) # defaults to v3 prompt
+    verify_prompt_cb = state.get("_trace_verify_prompt_callback") # type: ignore[call-overload]
     verification_result: VerificationResult = chain.run(
         new_card_summary=new_card_summary,
         analog_tickets=analog_tickets,
         candidates=candidates,
         raw_evidence=raw_evidence,
+        on_prompt=verify_prompt_cb if callable(verify_prompt_cb) else None,
     )
 
-    # Serialise to dicts for state transport
+    # Serialize to dicts for state transport
     judgment_dicts = [j.model_dump() for j in verification_result.judgments]
     logger.info("[node_verify_candidates] done in %.2fs | %d judgments", time.time() - t, len(judgment_dicts))
     return {"verify_judgments": judgment_dicts}
 
-
 def node_finalize_selection(state: PredictionState) -> Dict[str, Any]:
-    """Step 9 (Pass 2): VerificationResult → SelectionResult."""
+    """Step 9 (Pass 2): VerificationResult -> SelectionResult."""
     t = time.time()
     new_card_summary = state.get("new_card_summary", {})
     judgment_dicts = state.get("verify_judgments", [])
@@ -901,19 +927,24 @@ def node_finalize_selection(state: PredictionState) -> Dict[str, Any]:
         CandidateJudgment(**j) if isinstance(j, dict) else j
         for j in judgment_dicts
     ]
+
     verification_result = VerificationResult(judgments=judgments)
 
-    chain = SelectorFinalizeChain(llm=svc["llm"])  # defaults to v3 prompt
+    chain = SelectorFinalizeChain(llm=svc["llm"]) # defaults to v3 prompt
+    on_prompt_cb = state.get("_trace_prompt_callback") # type: ignore[call-overload]
     selection_result: SelectionResult = chain.run(
         new_card_summary=new_card_summary,
         verification_result=verification_result,
         fused_candidates=fused_candidates,
+        on_prompt=on_prompt_cb if callable(on_prompt_cb) else None,
     )
 
     logger.info("[node_finalize_selection] done in %.2fs", time.time() - t)
-    # Serialise to dict for state transport; finalize_output deserialises
-    return {"selection_result": selection_result.model_dump()}
-
+    # Serialize to dict for state transport; finalize_output deserializes
+    return {
+        "selection_result": selection_result.model_dump(),
+        "final_prompt": chain.last_prompt_payload,
+    }
 
 def node_finalize_output(state: PredictionState) -> Dict[str, Any]:
     """Step 10: Dedup, compat fields, and finalize three-class output."""
@@ -933,7 +964,7 @@ def node_finalize_output(state: PredictionState) -> Dict[str, Any]:
     raw_pattern = [s.model_dump() for s in sr.pattern_inferred]
     raw_no_ev = [s.model_dump() for s in sr.no_evidence]
 
-    # Fall back to converting verify_judgments directly if selection_result is empty
+    # Fall back to converting verify judgments directly if selection result is empty
     if not raw_directly and not raw_pattern and not raw_no_ev:
         judgment_dicts = state.get("verify_judgments", [])
         if judgment_dicts:
@@ -981,6 +1012,8 @@ def node_finalize_output(state: PredictionState) -> Dict[str, Any]:
             "confidence": vs.get("confidence", 0.6),
             "reason": vs.get("evidence", ""),
             "support_type": "pattern",
+            "pattern_basis": vs.get("pattern_basis", "analog_similarity"),
+            "supporting_analog_ids": vs.get("supporting_analog_ids", []),
         })
 
     rejected_candidates = [
@@ -995,7 +1028,6 @@ def node_finalize_output(state: PredictionState) -> Dict[str, Any]:
         "selected_value_streams": selected_value_streams,
         "rejected_candidates": rejected_candidates,
     }
-
 
 # ---------------------------------------------------------------------------
 # Fallback
@@ -1020,7 +1052,6 @@ _DOMAIN_KEYWORDS = {
     "it": ["system", "platform", "integration", "api", "migration", "data", "digital"],
     "regulatory": ["regulatory", "compliance", "hipaa", "cms", "mandate", "audit"],
 }
-
 
 def _deterministic_fallback_summary(cleaned_text: str) -> Dict[str, Any]:
     lower = cleaned_text.lower()
