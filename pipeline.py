@@ -2,14 +2,17 @@
 Summary-first RAG pipeline orchestrator (V6 architecture) - thin wrapper.
 
 This module is the public API entry point. All orchestration logic lives in:
-  - graph/build_prediction_graph.py  (LangGraph 14-node graph + sequential fallback)
+  - graph/build_prediction_graph.py  (LangGraph 16-node graph + sequential fallback)
   - graph/nodes.py                   (per-step node functions)
   - graph/edges.py                   (conditional routing logic)
   - chains/                          (LangChain prompt chains)
   - models/                          (Pydantic data contracts)
-  - config/                          (YAML configs: capability_map, source_weights, function_vocab)
+  - config/                          (YAML configs: capability_map, source_weights,
+                                      function_vocab, stream_signal_rules,
+                                      downstream_promotion_rules, taxonomy_policy_rules,
+                                      historical_label_priors, taxonomy_registry)
 
-End-to-end flow - 14 nodes (implemented in graph/nodes.py):
+End-to-end flow - 16 nodes (implemented in graph/nodes.py):
   1.  clean_and_summarize        - normalize text, generate semantic summary
   2.  retrieve_analogs           - FAISS search for top analog historical tickets
   3.  collect_vs_evidence        - VS support from analogs + bundle/downstream pattern detection
@@ -21,13 +24,16 @@ End-to-end flow - 14 nodes (implemented in graph/nodes.py):
   8.  collect_raw_evidence       - raw evidence chunks + attachment proxy candidates
   9.  parse_attachments          - section-level parsing + attachment native candidates
                                    (reads _attachment_contents or falls back to card text)
-  10. build_evidence             - merge all 7 sources into CandidateEvidence; inject
+  10. promote_downstream_candidates - Phase 3: pattern-based downstream candidate promotion
+  11. build_evidence             - merge all 7 sources into CandidateEvidence; inject
                                    bundle/downstream pattern score boosts
-  11. fuse_scores                - source-aware weighted fusion + quality multipliers +
+  12. fuse_scores                - source-aware weighted fusion + quality multipliers +
                                    theme promotion bonus + candidate floor guardrail
-  12. verify_candidates          - Pass 1 LLM verifier + per-candidate judgments
-  13. finalize_selection         - Pass 2 LLM selector + three-class SelectionResult
-  14. finalize_output            - dedup, normalize, produce final output
+  13. verify_candidates          - Pass 1 LLM verifier + per-candidate judgments
+  14. taxonomy_policy_rerank     - Phase 4: label eligibility reranking via policy rules,
+                                   sibling dominance, and historical priors
+  15. finalize_selection         - Pass 2 LLM selector consuming reranked candidates
+  16. finalize_output            - dedup, normalize, produce final output
 
 7 evidence sources: chunk | summary | attachment | theme | kg | historical | capability
 """
@@ -214,7 +220,11 @@ def run_summary_rag_pipeline(
         "theme_source_status": result.get("theme_source_status", {}),
         "fusion_profile": result.get("fusion_profile", "default"),
         "final_prompt": result.get("final_prompt", {}),
-        # Taxonomy diagnostics
+        # Phase 4: taxonomy policy reranker outputs
+        "taxonomy_reranked_candidates": result.get("taxonomy_reranked_candidates", []),
+        "taxonomy_suppressed_candidates": result.get("taxonomy_suppressed_candidates", []),
+        "taxonomy_decisions": result.get("taxonomy_decisions", []),
+        # Taxonomy registry diagnostics
         "canonical_label_map": result.get("canonical_label_map", {}),
         "taxonomy_warnings": result.get("taxonomy_warnings", []),
         **({"trace": result.get("trace", {})} if trace_mode else {}),
@@ -327,6 +337,8 @@ def _persist_debug_artifacts(
             "fused_candidates.json": result.get("fused_candidates", []),
             "raw_evidence.json": result.get("raw_evidence", []),
             "selection_result.json": result.get("selection_result", {}),
+            # Phase 3: downstream promotion artifacts
+            "downstream_promoted_candidates.json": result.get("downstream_promoted_candidates", []),
             # V6: historical footprint pattern artifacts
             "bundle_patterns.json": result.get("bundle_patterns", []),
             "downstream_chains.json": result.get("downstream_chains", []),
@@ -339,7 +351,11 @@ def _persist_debug_artifacts(
             "theme_source_status.json": result.get("theme_source_status", {}),
             "theme_debug.json": result.get("theme_debug", {}),
             "fusion_profile.json": {"profile": result.get("fusion_profile", "default")},
-            # Taxonomy diagnostics
+            # Phase 4: taxonomy policy reranker decision artifacts
+            "taxonomy_reranked_candidates.json": result.get("taxonomy_reranked_candidates", []),
+            "taxonomy_suppressed_candidates.json": result.get("taxonomy_suppressed_candidates", []),
+            "taxonomy_decisions.json": result.get("taxonomy_decisions", []),
+            # Taxonomy registry diagnostics
             "canonical_label_map.json": result.get("canonical_label_map", {}),
             "taxonomy_warnings.json": result.get("taxonomy_warnings", []),
             "eval_log.json": {
