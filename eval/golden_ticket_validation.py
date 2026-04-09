@@ -62,12 +62,16 @@ def validate_single_ticket(
     }
 
     false_negatives = exact.get("false_negatives", [])
+    pred_family_set = set(family.get("pred_family_set", []))
+    gt_family_set = set(family.get("gt_family_set", []))
     miss_categories: Dict[str, str] = {}
     for label in false_negatives:
         if label in suppressed:
             miss_categories[label] = "taxonomy_suppression"
         elif label in promoted_names and label not in verify_names:
             miss_categories[label] = "downstream_promotion_miss"
+        elif gt_family_set and pred_family_set and pred_family_set.isdisjoint(gt_family_set):
+            miss_categories[label] = "family_mismatch"
         elif label in verify_names:
             miss_categories[label] = "finalize_or_selection_miss"
         elif label in canonical.get("unknown_names", []):
@@ -78,10 +82,12 @@ def validate_single_ticket(
     report = {
         "predicted_labels": predicted_labels,
         "suppressed_labels": suppressed,
+        "downstream_promoted_labels": sorted(promoted_names),
         "gt_labels": canonical_gt,
         "false_positives": exact.get("false_positives", []),
         "false_negatives": false_negatives,
         "family_matches": family.get("matched_families", []),
+        "family_mismatches": sorted(set(family.get("pred_family_set", [])) - set(family.get("gt_family_set", []))),
         "policy_decisions": result.get("taxonomy_decisions", []),
         "miss_categories": miss_categories,
         "exact_metrics": exact,

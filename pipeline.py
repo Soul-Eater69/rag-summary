@@ -224,6 +224,9 @@ def run_summary_rag_pipeline(
         "taxonomy_reranked_candidates": result.get("taxonomy_reranked_candidates", []),
         "taxonomy_suppressed_candidates": result.get("taxonomy_suppressed_candidates", []),
         "taxonomy_decisions": result.get("taxonomy_decisions", []),
+        "downstream_promoted_candidates": result.get("downstream_promoted_candidates", []),
+        "bundle_patterns": result.get("bundle_patterns", []),
+        "downstream_chains": result.get("downstream_chains", []),
         # Taxonomy registry diagnostics
         "canonical_label_map": result.get("canonical_label_map", {}),
         "taxonomy_warnings": result.get("taxonomy_warnings", []),

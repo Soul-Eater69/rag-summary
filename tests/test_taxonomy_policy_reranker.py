@@ -542,7 +542,11 @@ class TestDecisionLog:
                       "policy_adjustment", "suppressed", "suppression_reason",
                       "historical_support_present", "bundle_support_present",
                       "downstream_support_present", "historical_support_score",
-                      "bundle_support_score", "downstream_support_score"):
+                      "bundle_support_score", "downstream_support_score",
+                      "downstream_promoted", "historical_prior_family_match",
+                      "decision_reason", "historical_contribution",
+                      "bundle_downstream_contribution", "sibling_dominance_contribution",
+                      "text_signal_confirmed"):
             assert field in decision, f"Decision missing field '{field}'"
 
 
@@ -639,6 +643,7 @@ class TestRealConfigs:
         assert "Issue Payment" not in suppressed_names
         decision = next(d for d in result["taxonomy_decisions"] if d["entity_name"] == "Issue Payment")
         assert decision["downstream_support_present"] is True
+        assert decision["downstream_promoted"] is True
         assert decision["historical_support_score"] > 0
 
     def test_onboard_partner_dominates_provider_network_when_workflow_present(self):

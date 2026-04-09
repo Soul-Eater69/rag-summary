@@ -22,12 +22,14 @@ families:
     dominant_labels:
       - "Order to Cash"
       - "Manage Invoice and Payment Receipt"
+      - "Issue Payment"
     adjacent_weak_labels:
       - "Issue Payment"
       - "Manage COB"
     downstream_labels:
       - "Issue Payment"
       - "Manage Invoice and Payment Receipt"
+      - "Order to Cash"
     label_frequency: 0.70
 
   product_and_pricing:
@@ -106,8 +108,11 @@ families:
   strategy:
     dominant_labels:
       - "Develop Mission, Vision, and Strategy"
-    adjacent_weak_labels: []
-    downstream_labels: []
+    adjacent_weak_labels:
+      - "Manage Data and Analytics"
+      - "Manage Enterprise Risk"
+    downstream_labels:
+      - "Manage Data and Analytics"
     label_frequency: 0.15
 
   partner_management:
@@ -174,7 +179,8 @@ families:
     label_frequency: 0.30
 
   specialty_benefits:
-    dominant_labels: []
+    dominant_labels:
+      - "Manage Behavioral Health"
     adjacent_weak_labels:
       - "Manage Behavioral Health"
       - "Manage Dental"
