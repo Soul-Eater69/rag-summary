@@ -48,6 +48,15 @@ FUNCTION_VOCAB: List[str] = [
     "network management",
     "data migration",
     "system integration",
+    # Phase 2 additions — finer-grained functions for under-recovered families
+    "pricing",              # CPQ pricing engine / rate rules (vs generic quote/rating)
+    "quote management",     # CPQ quote lifecycle (vs transactional quote/rating)
+    "offer packaging",      # Product offer bundling and packaging
+    "invoice operations",   # Invoice lifecycle distinct from billing collection
+    "payment operations",   # Payment disbursement operations (vs receipt)
+    "partner onboarding",   # Vendor/partner onboarding distinct from HR onboarding
+    "inquiry routing",      # Routing and triaging inquiries (vs resolving)
+    "service operations",   # Operational service delivery workflows
 ]
 
 # ---------------------------------------------------------------------------
@@ -58,17 +67,30 @@ FUNCTION_VOCAB: List[str] = [
 # the canonical function is matched.
 
 _PHRASE_RULES: List[Dict[str, object]] = [
-    # vendor / partner
+    # vendor / partner — Phase 2: distinguish partner onboarding from integration
+    {"triggers": ["vendor", "onboarding"], "canonical": "partner onboarding"},
+    {"triggers": ["partner", "onboarding"], "canonical": "partner onboarding"},
+    {"triggers": ["vendor", "setup"], "canonical": "partner onboarding"},
+    {"triggers": ["partner", "setup"], "canonical": "partner onboarding"},
+    {"triggers": ["vendor", "integration"], "canonical": "vendor integration"},
     {"triggers": ["vendor"], "canonical": "vendor integration"},
     {"triggers": ["partner"], "canonical": "vendor integration"},
     {"triggers": ["eligibility", "handoff"], "canonical": "eligibility"},
     {"triggers": ["eligibility"], "canonical": "eligibility"},
 
-    # billing / payment / financial
+    # billing / payment / financial — Phase 2: separate invoice ops from billing collection
+    {"triggers": ["invoice", "management"], "canonical": "invoice operations"},
+    {"triggers": ["invoice", "processing"], "canonical": "invoice operations"},
+    {"triggers": ["invoice", "lifecycle"], "canonical": "invoice operations"},
+    {"triggers": ["payment", "receipt"], "canonical": "invoice operations"},
+    {"triggers": ["payment", "disbursement"], "canonical": "payment operations"},
+    {"triggers": ["payment", "issuance"], "canonical": "payment operations"},
+    {"triggers": ["accounts", "payable"], "canonical": "payment operations"},
+    {"triggers": ["accounts", "receivable"], "canonical": "invoice operations"},
     {"triggers": ["billing"], "canonical": "billing"},
-    {"triggers": ["invoice"], "canonical": "billing"},
+    {"triggers": ["invoice"], "canonical": "invoice operations"},
     {"triggers": ["payment"], "canonical": "payment"},
-    {"triggers": ["remittance"], "canonical": "payment"},
+    {"triggers": ["remittance"], "canonical": "payment operations"},
     {"triggers": ["collections"], "canonical": "billing"},
     {"triggers": ["premium"], "canonical": "billing"},
     {"triggers": ["settlement"], "canonical": "payment"},
@@ -98,18 +120,38 @@ _PHRASE_RULES: List[Dict[str, object]] = [
     {"triggers": ["onboarding"], "canonical": "onboarding"},
     {"triggers": ["setup"], "canonical": "onboarding"},
 
-    # portal / request
+    # portal / request / inquiry — Phase 2: distinguish routing from resolution
+    {"triggers": ["inquiry", "routing"], "canonical": "inquiry routing"},
+    {"triggers": ["inquiry", "triage"], "canonical": "inquiry routing"},
+    {"triggers": ["request", "routing"], "canonical": "inquiry routing"},
+    {"triggers": ["service", "operations"], "canonical": "service operations"},
+    {"triggers": ["service", "delivery"], "canonical": "service operations"},
+    {"triggers": ["operational", "workflow"], "canonical": "service operations"},
     {"triggers": ["portal"], "canonical": "portal access"},
     {"triggers": ["request", "handling"], "canonical": "request handling"},
     {"triggers": ["inquiry"], "canonical": "request handling"},
     {"triggers": ["self-service"], "canonical": "portal access"},
 
-    # quote / pricing
+    # quote / pricing — Phase 2: more specific CPQ routing
+    # Most-specific rules first (2-token triggers win over 1-token)
+    {"triggers": ["configure", "price", "quote"], "canonical": "quote management"},
+    {"triggers": ["configure", "price"], "canonical": "quote management"},
+    {"triggers": ["quoting", "engine"], "canonical": "quote management"},
+    {"triggers": ["quote", "generation"], "canonical": "quote management"},
+    {"triggers": ["quote", "management"], "canonical": "quote management"},
+    {"triggers": ["pricing", "engine"], "canonical": "pricing"},
+    {"triggers": ["pricing", "rules"], "canonical": "pricing"},
+    {"triggers": ["pricing", "configuration"], "canonical": "pricing"},
+    {"triggers": ["rate", "card"], "canonical": "pricing"},
+    {"triggers": ["underwriting", "rules"], "canonical": "pricing"},
+    {"triggers": ["offer", "packaging"], "canonical": "offer packaging"},
+    {"triggers": ["product", "packaging"], "canonical": "offer packaging"},
+    {"triggers": ["bundle"], "canonical": "offer packaging"},
+    # Fallback generic mappings (1-token, lower specificity)
     {"triggers": ["quote"], "canonical": "quote/rating"},
     {"triggers": ["quoting"], "canonical": "quote/rating"},
-    {"triggers": ["pricing"], "canonical": "quote/rating"},
+    {"triggers": ["pricing"], "canonical": "pricing"},
     {"triggers": ["rating"], "canonical": "quote/rating"},
-    {"triggers": ["configure", "price"], "canonical": "quote/rating"},
 
     # compliance / regulatory
     {"triggers": ["compliance"], "canonical": "compliance"},

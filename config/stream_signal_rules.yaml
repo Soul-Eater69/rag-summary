@@ -1,0 +1,809 @@
+# ============================================================================
+# Stream Signal Rules (Phase 2)
+#
+# Per-family rules that strengthen or weaken evidence for value stream
+# candidate scoring. Consumed by generation/card_candidates.py signal-aware
+# scoring logic and (Phase 3) downstream_promoter.py.
+#
+# Schema per family:
+#   positive_signals:          terms that strongly evidence the family
+#   weak_only_not_enough:      terms that alone cannot produce a hit
+#   attachment_boost_signals:  terms found in attachments that boost score
+#   historical_promotion_hints: analog-history patterns that promote family
+#   min_positive_required:     minimum positive_signals matches to score
+#   score_boost:               additive boost when positive_signals match (0-1)
+#   score_penalty:             penalty when only weak terms match (0-1)
+# ============================================================================
+
+version: "1"
+
+families:
+
+  # --------------------------------------------------------------------------
+  # product_and_pricing — CPQ family
+  # Under-recovered: ambiguous "pricing" and "quote" tokens bleed into
+  # billing_order_to_cash; need stronger disambiguation rules.
+  # --------------------------------------------------------------------------
+  product_and_pricing:
+    positive_signals:
+      - "configure price"
+      - "configure, price"
+      - "cpq"
+      - "quoting engine"
+      - "rate card"
+      - "product configuration"
+      - "pricing rules"
+      - "pricing engine"
+      - "quote generation"
+      - "rating engine"
+      - "product catalog"
+      - "plan configuration"
+      - "benefit configuration"
+      - "product setup"
+      - "price book"
+      - "underwriting rules"
+    weak_only_not_enough:
+      - "quote"        # alone is too generic — also lives in sales/claims
+      - "pricing"      # generic — also appears in financial/actuarial context
+      - "price"        # generic
+      - "rate"         # generic
+    attachment_boost_signals:
+      - "cpq workflow"
+      - "quoting workflow"
+      - "rate card template"
+      - "pricing spreadsheet"
+      - "product matrix"
+      - "configuration guide"
+      - "product build"
+      - "benefit build"
+    historical_promotion_hints:
+      - "Configure, Price, and Quote"
+      - "CPQ"
+      - "Manage Product and Service Inventory"
+    min_positive_required: 1
+    score_boost: 0.12
+    score_penalty: 0.08
+
+  # --------------------------------------------------------------------------
+  # member_services — request inquiry family
+  # Under-recovered: "inquiry" and "request" tokens are very common and produce
+  # false positives across many other clusters. Need positive disambiguation.
+  # --------------------------------------------------------------------------
+  member_services:
+    positive_signals:
+      - "member inquiry"
+      - "provider inquiry"
+      - "service request"
+      - "request resolution"
+      - "inquiry resolution"
+      - "member services"
+      - "service center"
+      - "contact center"
+      - "call center"
+      - "member support"
+      - "issue resolution"
+      - "request management"
+      - "inquiry handling"
+      - "case resolution"
+      - "ticket resolution"
+    weak_only_not_enough:
+      - "inquiry"      # generic — appears in many contexts
+      - "request"      # generic
+      - "resolution"   # generic
+      - "support"      # generic
+    attachment_boost_signals:
+      - "member inquiry form"
+      - "service request template"
+      - "resolution workflow"
+      - "contact center process"
+      - "member support guide"
+    historical_promotion_hints:
+      - "Resolve Request Inquiry"
+      - "Manage Member Information"
+    min_positive_required: 1
+    score_boost: 0.10
+    score_penalty: 0.10
+
+  # --------------------------------------------------------------------------
+  # finance — invoice, payment, and O2C family
+  # Under-recovered: short cards with "payment" alone often miss the invoice
+  # context; need to separate billing operations from claims payments.
+  # --------------------------------------------------------------------------
+  finance:
+    positive_signals:
+      - "invoice"
+      - "billing"
+      - "remittance"
+      - "accounts receivable"
+      - "accounts payable"
+      - "premium billing"
+      - "payment receipt"
+      - "payment reconciliation"
+      - "order to cash"
+      - "o2c"
+      - "collections"
+      - "dunning"
+      - "statement of account"
+      - "financial settlement"
+      - "premium collection"
+      - "premium payment"
+      - "group billing"
+      - "employer billing"
+    weak_only_not_enough:
+      - "payment"      # too generic — also in claims, pharmacy, etc.
+      - "financial"    # generic
+      - "revenue"      # generic
+    attachment_boost_signals:
+      - "invoice template"
+      - "billing schedule"
+      - "remittance advice"
+      - "payment terms"
+      - "billing reconciliation"
+      - "accounts payable process"
+      - "accounts receivable process"
+      - "financial reconciliation"
+    historical_promotion_hints:
+      - "Order to Cash"
+      - "Issue Payment"
+      - "Manage Invoice and Payment Receipt"
+    min_positive_required: 1
+    score_boost: 0.10
+    score_penalty: 0.06
+
+  # --------------------------------------------------------------------------
+  # enrollment — plan enrollment/eligibility family
+  # --------------------------------------------------------------------------
+  enrollment:
+    positive_signals:
+      - "enrollment"
+      - "enrolment"
+      - "member enrollment"
+      - "eligibility"
+      - "eligibility verification"
+      - "disenrollment"
+      - "plan enrollment"
+      - "group enrollment"
+      - "open enrollment"
+      - "special enrollment"
+      - "enrollment period"
+      - "enrollment file"
+      - "834 transaction"
+      - "enrollment data"
+      - "life event"
+      - "qualifying event"
+    weak_only_not_enough:
+      - "member"       # too broad
+      - "plan"         # too broad
+      - "benefits"     # too broad
+    attachment_boost_signals:
+      - "enrollment form"
+      - "eligibility file"
+      - "enrollment workflow"
+      - "census file"
+      - "enrollment guide"
+    historical_promotion_hints:
+      - "Manage Enrollment"
+      - "Manage Eligibility"
+    min_positive_required: 1
+    score_boost: 0.10
+    score_penalty: 0.06
+
+  # --------------------------------------------------------------------------
+  # provider_network — credentialing, contracting, network family
+  # Under-recovered: "provider" alone fires too broadly
+  # --------------------------------------------------------------------------
+  provider_network:
+    positive_signals:
+      - "provider credentialing"
+      - "credentialing"
+      - "provider contracting"
+      - "network contracting"
+      - "network adequacy"
+      - "provider directory"
+      - "provider onboarding"
+      - "provider setup"
+      - "provider enrollment"
+      - "network expansion"
+      - "provider panel"
+      - "in-network"
+      - "out-of-network"
+      - "network management"
+      - "provider agreement"
+      - "fee schedule"
+    weak_only_not_enough:
+      - "provider"     # generic — appears in claims, portals, etc.
+      - "network"      # generic
+      - "contract"     # generic
+    attachment_boost_signals:
+      - "credentialing checklist"
+      - "provider contract template"
+      - "network directory"
+      - "provider profile"
+      - "fee schedule table"
+      - "network matrix"
+    historical_promotion_hints:
+      - "Manage Provider Network"
+      - "Credential Provider"
+      - "Contract Provider"
+      - "Onboard Partner"
+    min_positive_required: 1
+    score_boost: 0.12
+    score_penalty: 0.08
+
+  # --------------------------------------------------------------------------
+  # compliance_and_risk — compliance and enterprise risk family
+  # --------------------------------------------------------------------------
+  compliance_and_risk:
+    positive_signals:
+      - "regulatory compliance"
+      - "hipaa"
+      - "compliance program"
+      - "audit"
+      - "risk management"
+      - "enterprise risk"
+      - "control framework"
+      - "sox"
+      - "gdpr"
+      - "privacy"
+      - "information security"
+      - "data governance"
+      - "fwa"
+      - "fraud detection"
+      - "waste and abuse"
+      - "compliance monitoring"
+      - "regulatory filing"
+    weak_only_not_enough:
+      - "risk"         # generic — financial, project, operational risk all differ
+      - "policy"       # generic
+      - "governance"   # generic
+    attachment_boost_signals:
+      - "compliance checklist"
+      - "risk register"
+      - "audit report"
+      - "control assessment"
+      - "privacy notice"
+      - "regulatory calendar"
+    historical_promotion_hints:
+      - "Ensure Compliance"
+      - "Manage Enterprise Risk"
+      - "Manage Fraud, Waste, and Abuse"
+    min_positive_required: 1
+    score_boost: 0.10
+    score_penalty: 0.06
+
+  # --------------------------------------------------------------------------
+  # partner_management — vendor/partner onboarding family
+  # Under-recovered: "onboarding" fires across HR, provider, partner contexts
+  # --------------------------------------------------------------------------
+  partner_management:
+    positive_signals:
+      - "vendor onboarding"
+      - "partner onboarding"
+      - "vendor management"
+      - "vendor relationship"
+      - "third-party vendor"
+      - "vendor integration"
+      - "vendor performance"
+      - "supplier management"
+      - "vendor contract"
+      - "partner program"
+      - "external partner"
+    weak_only_not_enough:
+      - "onboarding"   # also HR onboarding and provider onboarding
+      - "vendor"       # appears in procurement/IT/operations
+      - "partner"      # appears in provider network and channel contexts
+    attachment_boost_signals:
+      - "vendor onboarding form"
+      - "vendor agreement"
+      - "partner portal guide"
+      - "vendor scorecard"
+      - "supplier contract"
+    historical_promotion_hints:
+      - "Onboard Partner"
+      - "Manage Vendor Relationship"
+    min_positive_required: 1
+    score_boost: 0.10
+    score_penalty: 0.10
+
+  # --------------------------------------------------------------------------
+  # strategy — mission/vision/strategy family
+  # Over-fired: very broad terms; suppress unless strongly evidenced
+  # --------------------------------------------------------------------------
+  strategy:
+    positive_signals:
+      - "strategic plan"
+      - "mission statement"
+      - "vision statement"
+      - "corporate strategy"
+      - "strategic initiative"
+      - "business strategy"
+      - "strategic objective"
+      - "organizational strategy"
+      - "strategy roadmap"
+      - "strategic priority"
+    weak_only_not_enough:
+      - "strategy"     # very generic — suppress unless paired with others
+      - "mission"      # generic
+      - "vision"       # generic
+      - "planning"     # generic
+      - "roadmap"      # generic
+    attachment_boost_signals:
+      - "strategic plan document"
+      - "executive roadmap"
+      - "strategy deck"
+      - "mission vision document"
+    historical_promotion_hints:
+      - "Develop Mission, Vision, and Strategy"
+    min_positive_required: 2     # need at least 2 positive signals — broad guard
+    score_boost: 0.08
+    score_penalty: 0.15          # larger penalty: over-fires easily
+
+  # --------------------------------------------------------------------------
+  # care_management — care coordination / population health family
+  # --------------------------------------------------------------------------
+  care_management:
+    positive_signals:
+      - "care coordination"
+      - "care management"
+      - "case management"
+      - "disease management"
+      - "population health"
+      - "care plan"
+      - "care program"
+      - "care manager"
+      - "care gap"
+      - "high-risk member"
+      - "complex care"
+      - "transitional care"
+      - "discharge planning"
+      - "community health"
+      - "wellness program"
+      - "health coaching"
+    weak_only_not_enough:
+      - "care"         # alone is very broad
+      - "health"       # alone is very broad
+      - "member"       # alone is very broad
+    attachment_boost_signals:
+      - "care plan template"
+      - "care management workflow"
+      - "population health report"
+      - "care gap analysis"
+      - "disease management protocol"
+    historical_promotion_hints:
+      - "Manage Care Coordination"
+      - "Manage Population Health"
+      - "Promote Community Health"
+      - "Participate in Health Management Program"
+    min_positive_required: 1
+    score_boost: 0.10
+    score_penalty: 0.06
+
+  # --------------------------------------------------------------------------
+  # claims — claims adjudication / lifecycle family
+  # --------------------------------------------------------------------------
+  claims:
+    positive_signals:
+      - "claims processing"
+      - "claim adjudication"
+      - "claims adjudication"
+      - "claim submission"
+      - "claims payment"
+      - "denial management"
+      - "claims lifecycle"
+      - "claims inventory"
+      - "claim pend"
+      - "claim edit"
+      - "claims workflow"
+      - "eob"
+      - "explanation of benefits"
+      - "837"
+      - "835"
+    weak_only_not_enough:
+      - "claim"        # too broad
+      - "claims"       # too broad
+    attachment_boost_signals:
+      - "claims workflow diagram"
+      - "adjudication logic"
+      - "remittance file"
+      - "claims matrix"
+      - "denial workflow"
+    historical_promotion_hints:
+      - "Adjudicate Claim"
+      - "Manage Claim"
+    min_positive_required: 1
+    score_boost: 0.10
+    score_penalty: 0.06
+
+  # --------------------------------------------------------------------------
+  # utilization — utilization management / authorization family
+  # --------------------------------------------------------------------------
+  utilization:
+    positive_signals:
+      - "prior authorization"
+      - "utilization management"
+      - "utilization review"
+      - "concurrent review"
+      - "medical necessity"
+      - "authorization request"
+      - "service authorization"
+      - "authorization decision"
+      - "denial of service"
+      - "um criteria"
+      - "length of stay"
+      - "clinical criteria"
+    weak_only_not_enough:
+      - "authorization"  # appears in IT/security contexts too
+      - "review"         # generic
+    attachment_boost_signals:
+      - "authorization workflow"
+      - "um criteria guide"
+      - "prior auth form"
+      - "medical necessity criteria"
+    historical_promotion_hints:
+      - "Manage Utilization"
+      - "Authorize Service"
+    min_positive_required: 1
+    score_boost: 0.10
+    score_penalty: 0.08
+
+  # --------------------------------------------------------------------------
+  # pharmacy — pharmacy benefit management family
+  # --------------------------------------------------------------------------
+  pharmacy:
+    positive_signals:
+      - "pharmacy benefit"
+      - "pbm"
+      - "formulary"
+      - "prescription drug"
+      - "drug coverage"
+      - "specialty pharmacy"
+      - "medication management"
+      - "drug formulary"
+      - "step therapy"
+      - "prior auth pharmacy"
+      - "medication adherence"
+      - "drug utilization"
+    weak_only_not_enough:
+      - "pharmacy"     # alone is insufficient — could be retail pharmacy context
+      - "drug"         # generic
+      - "medication"   # generic
+    attachment_boost_signals:
+      - "formulary list"
+      - "drug tier"
+      - "pbm report"
+      - "specialty drug list"
+      - "medication guide"
+    historical_promotion_hints:
+      - "Manage Pharmacy Benefit"
+    min_positive_required: 1
+    score_boost: 0.12
+    score_penalty: 0.08
+
+  # --------------------------------------------------------------------------
+  # quality — quality program / accreditation family
+  # --------------------------------------------------------------------------
+  quality:
+    positive_signals:
+      - "quality program"
+      - "hedis"
+      - "stars rating"
+      - "quality measure"
+      - "ncqa"
+      - "urac"
+      - "accreditation"
+      - "quality improvement"
+      - "quality reporting"
+      - "performance measure"
+      - "clinical quality"
+    weak_only_not_enough:
+      - "quality"      # generic — could be data quality, software quality
+      - "measure"      # generic
+      - "performance"  # generic
+    attachment_boost_signals:
+      - "hedis report"
+      - "star rating breakdown"
+      - "quality dashboard"
+      - "accreditation checklist"
+    historical_promotion_hints:
+      - "Manage Quality Program"
+      - "Manage Accreditation"
+    min_positive_required: 1
+    score_boost: 0.12
+    score_penalty: 0.08
+
+  # --------------------------------------------------------------------------
+  # appeals_and_grievances — appeals / grievance family
+  # --------------------------------------------------------------------------
+  appeals_and_grievances:
+    positive_signals:
+      - "appeal"
+      - "grievance"
+      - "member complaint"
+      - "claim appeal"
+      - "dispute resolution"
+      - "reconsideration"
+      - "adverse determination"
+      - "independent review"
+      - "ire"
+      - "second level appeal"
+      - "expedited appeal"
+    weak_only_not_enough:
+      - "complaint"    # too generic
+      - "dispute"      # too generic
+    attachment_boost_signals:
+      - "appeal form"
+      - "grievance workflow"
+      - "appeal log"
+      - "appeals tracking"
+    historical_promotion_hints:
+      - "Manage Appeal"
+      - "Manage Grievance"
+    min_positive_required: 1
+    score_boost: 0.10
+    score_penalty: 0.06
+
+  # --------------------------------------------------------------------------
+  # referrals — referral management family
+  # --------------------------------------------------------------------------
+  referrals:
+    positive_signals:
+      - "referral"
+      - "referral management"
+      - "specialist referral"
+      - "referral authorization"
+      - "referral tracking"
+      - "referral workflow"
+    weak_only_not_enough: []
+    attachment_boost_signals:
+      - "referral form"
+      - "referral workflow diagram"
+    historical_promotion_hints:
+      - "Manage Referral"
+    min_positive_required: 1
+    score_boost: 0.10
+    score_penalty: 0.06
+
+  # --------------------------------------------------------------------------
+  # benefit_design — benefit plan design family
+  # --------------------------------------------------------------------------
+  benefit_design:
+    positive_signals:
+      - "benefit design"
+      - "plan design"
+      - "benefit structure"
+      - "benefit configuration"
+      - "benefit administration"
+      - "coverage rules"
+      - "benefit package"
+      - "accumulator"
+      - "deductible"
+      - "out-of-pocket"
+      - "copay"
+      - "coinsurance"
+    weak_only_not_enough:
+      - "benefit"      # too generic
+      - "coverage"     # too generic
+      - "plan"         # too generic
+    attachment_boost_signals:
+      - "benefit summary"
+      - "plan design document"
+      - "benefit matrix"
+      - "summary of benefits"
+      - "sbc"
+    historical_promotion_hints:
+      - "Manage Benefit"
+    min_positive_required: 1
+    score_boost: 0.10
+    score_penalty: 0.06
+
+  # --------------------------------------------------------------------------
+  # recovery — subrogation and COB family
+  # --------------------------------------------------------------------------
+  recovery:
+    positive_signals:
+      - "subrogation"
+      - "coordination of benefits"
+      - "cob"
+      - "overpayment recovery"
+      - "third-party liability"
+      - "tpl"
+      - "recoupment"
+      - "primary payer"
+      - "secondary payer"
+      - "duplicate payment"
+    weak_only_not_enough:
+      - "recovery"     # generic — also used in IT/data recovery
+    attachment_boost_signals:
+      - "cob workflow"
+      - "subrogation log"
+      - "tpl investigation"
+    historical_promotion_hints:
+      - "Manage Subrogation"
+      - "Manage COB"
+    min_positive_required: 1
+    score_boost: 0.12
+    score_penalty: 0.08
+
+  # --------------------------------------------------------------------------
+  # specialty_benefits — dental, vision, behavioral health, transplant, WC
+  # --------------------------------------------------------------------------
+  specialty_benefits:
+    positive_signals:
+      - "behavioral health"
+      - "mental health"
+      - "dental benefit"
+      - "vision benefit"
+      - "transplant"
+      - "workers compensation"
+      - "workers comp"
+      - "no-fault"
+      - "auto insurance"
+      - "specialty benefit"
+      - "eap"
+      - "employee assistance"
+    weak_only_not_enough:
+      - "dental"       # alone — could be non-benefit context
+      - "vision"       # alone — could be strategic vision
+    attachment_boost_signals:
+      - "dental summary"
+      - "vision plan"
+      - "behavioral health guide"
+      - "transplant protocol"
+      - "workers comp workflow"
+    historical_promotion_hints:
+      - "Manage Behavioral Health"
+      - "Manage Dental"
+      - "Manage Vision"
+      - "Manage Transplant"
+      - "Manage Workers Compensation"
+      - "Manage Auto/No Fault"
+    min_positive_required: 1
+    score_boost: 0.12
+    score_penalty: 0.06
+
+  # --------------------------------------------------------------------------
+  # marketing — outreach and marketing family
+  # --------------------------------------------------------------------------
+  marketing:
+    positive_signals:
+      - "member outreach"
+      - "marketing campaign"
+      - "member communication"
+      - "outreach program"
+      - "member engagement"
+      - "health promotion"
+      - "wellness promotion"
+      - "education campaign"
+      - "member notification"
+    weak_only_not_enough:
+      - "outreach"     # could be clinical outreach or marketing outreach
+      - "communication" # generic
+      - "marketing"    # generic
+    attachment_boost_signals:
+      - "campaign brief"
+      - "outreach plan"
+      - "marketing materials"
+      - "member letter template"
+    historical_promotion_hints:
+      - "Manage Outreach and Marketing"
+    min_positive_required: 1
+    score_boost: 0.10
+    score_penalty: 0.08
+
+  # --------------------------------------------------------------------------
+  # data_and_analytics — data / BI / analytics family
+  # --------------------------------------------------------------------------
+  data_and_analytics:
+    positive_signals:
+      - "data analytics"
+      - "business intelligence"
+      - "data warehouse"
+      - "data pipeline"
+      - "reporting platform"
+      - "analytics platform"
+      - "kpi dashboard"
+      - "data governance"
+      - "master data"
+      - "data quality"
+      - "etl"
+      - "data lake"
+      - "bi tool"
+    weak_only_not_enough:
+      - "data"         # very generic
+      - "analytics"    # generic — could be claims analytics, clinical analytics
+      - "reporting"    # generic — many streams have reporting outputs
+    attachment_boost_signals:
+      - "data dictionary"
+      - "data model"
+      - "reporting requirements"
+      - "dashboard mockup"
+      - "analytics spec"
+    historical_promotion_hints:
+      - "Manage Data and Analytics"
+      - "Manage Reporting"
+    min_positive_required: 1
+    score_boost: 0.08
+    score_penalty: 0.08
+
+  # --------------------------------------------------------------------------
+  # it_and_operations — IT infrastructure / human capital family
+  # These are broad/suppressed families; require strong evidence
+  # --------------------------------------------------------------------------
+  it_and_operations:
+    positive_signals:
+      - "it infrastructure"
+      - "system architecture"
+      - "cloud migration"
+      - "platform migration"
+      - "infrastructure upgrade"
+      - "enterprise architecture"
+      - "technology platform"
+      - "it modernization"
+      - "human resources"
+      - "talent management"
+      - "hr system"
+      - "workforce planning"
+      - "hris"
+    weak_only_not_enough:
+      - "system"       # very generic
+      - "platform"     # generic
+      - "it"           # too short / generic
+      - "hr"           # too generic
+    attachment_boost_signals:
+      - "architecture diagram"
+      - "infrastructure plan"
+      - "hr process guide"
+      - "workforce plan"
+    historical_promotion_hints:
+      - "Manage IT Infrastructure"
+      - "Manage Human Capital"
+    min_positive_required: 2     # broad streams — require stronger evidence
+    score_boost: 0.08
+    score_penalty: 0.15          # larger penalty; these are suppressed families
+
+  # --------------------------------------------------------------------------
+  # encounter_management — encounter data family
+  # --------------------------------------------------------------------------
+  encounter_management:
+    positive_signals:
+      - "encounter data"
+      - "encounter submission"
+      - "encounter file"
+      - "encounter management"
+      - "encounter validation"
+      - "cms encounter"
+      - "medicaid encounter"
+    weak_only_not_enough:
+      - "encounter"    # could mean a member encounter (clinical visit)
+    attachment_boost_signals:
+      - "encounter file spec"
+      - "encounter validation rules"
+    historical_promotion_hints:
+      - "Manage Encounter"
+    min_positive_required: 1
+    score_boost: 0.12
+    score_penalty: 0.10
+
+  # --------------------------------------------------------------------------
+  # reinsurance — reinsurance / stop-loss family
+  # --------------------------------------------------------------------------
+  reinsurance:
+    positive_signals:
+      - "reinsurance"
+      - "stop loss"
+      - "stop-loss"
+      - "reinsurance contract"
+      - "risk transfer"
+      - "reinsurance premium"
+      - "attachment point"
+    weak_only_not_enough:
+      - "risk"         # too generic
+    attachment_boost_signals:
+      - "reinsurance report"
+      - "stop-loss contract"
+      - "reinsurance schedule"
+    historical_promotion_hints:
+      - "Manage Reinsurance"
+    min_positive_required: 1
+    score_boost: 0.15            # uncommon term — high confidence when matched
+    score_penalty: 0.06
