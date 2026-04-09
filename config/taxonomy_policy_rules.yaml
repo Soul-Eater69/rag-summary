@@ -45,6 +45,8 @@ streams:
       - "payment"
     suppress_if_only_semantic: false
     minimum_support_type: any
+    prefer_over:
+      - "Manage Invoice and Payment Receipt"
     eligibility_boost: 0.0
 
   Issue Payment:
@@ -65,6 +67,7 @@ streams:
       - "pay"
     suppress_if_only_semantic: true
     minimum_support_type: any
+    prefer_over: []
     eligibility_boost: 0.0
 
   Manage Invoice and Payment Receipt:
@@ -79,7 +82,7 @@ streams:
       - "accounts payable"
     weak_only_not_enough:
       - "receipt"
-    suppress_if_only_semantic: false
+    suppress_if_only_semantic: true
     minimum_support_type: any
     eligibility_boost: 0.0
 
@@ -110,6 +113,7 @@ streams:
     minimum_support_type: any
     prefer_over:
       - "Manage Product and Service Inventory"
+      - "Manage Enrollment"
     eligibility_boost: 0.0
 
   Manage Product and Service Inventory:
@@ -188,6 +192,8 @@ streams:
       - "member"
     suppress_if_only_semantic: false
     minimum_support_type: any
+    prefer_over:
+      - "Participate in Health Management Program"
     eligibility_boost: 0.0
 
   Manage Eligibility:
@@ -244,8 +250,10 @@ streams:
     weak_only_not_enough:
       - "claim"
       - "claims"
-    suppress_if_only_semantic: false
+    suppress_if_only_semantic: true
     minimum_support_type: any
+    prefer_over:
+      - "Adjudicate Claim"
     eligibility_boost: 0.0
 
   Manage COB:
@@ -347,6 +355,8 @@ streams:
       - "network"
     suppress_if_only_semantic: false
     minimum_support_type: any
+    prefer_over:
+      - "Onboard Partner"
     eligibility_boost: 0.0
 
   Credential Provider:
@@ -409,7 +419,7 @@ streams:
   # --------------------------------------------------------------------------
 
   Onboard Partner:
-    family: partner_management
+    family: provider_network
     requires_any:
       - "partner onboarding"
       - "vendor onboarding"
@@ -426,6 +436,8 @@ streams:
       - "onboard"
     suppress_if_only_semantic: true
     minimum_support_type: any
+    prefer_over:
+      - "Manage Provider Network"
     eligibility_boost: 0.0
 
   # --------------------------------------------------------------------------
@@ -448,6 +460,8 @@ streams:
       - "regulatory"
     suppress_if_only_semantic: false
     minimum_support_type: any
+    prefer_over:
+      - "Manage Enterprise Risk"
     eligibility_boost: 0.0
 
   Manage Fraud, Waste, and Abuse:
@@ -530,3 +544,69 @@ streams:
     suppress_if_only_semantic: false
     minimum_support_type: any
     eligibility_boost: 0.0
+
+  # --------------------------------------------------------------------------
+  # Additional hardening coverage
+  # --------------------------------------------------------------------------
+
+  Manage Population Health:
+    family: care_management
+    requires_any:
+      - "population health"
+      - "risk stratification"
+      - "care gaps"
+      - "cohort management"
+      - "quality outcomes"
+      - "preventive outreach"
+    weak_only_not_enough:
+      - "population"
+      - "health outcomes"
+    suppress_if_only_semantic: true
+    minimum_support_type: any
+    prefer_over:
+      - "Promote Community Health"
+    eligibility_boost: 0.0
+
+  Manage Enterprise Risk:
+    family: compliance_and_risk
+    requires_any:
+      - "enterprise risk"
+      - "risk register"
+      - "risk mitigation"
+      - "risk controls"
+      - "third party risk"
+    weak_only_not_enough:
+      - "risk"
+    suppress_if_only_semantic: true
+    minimum_support_type: any
+    eligibility_boost: -0.03
+
+  Manage Vendor Relationship:
+    family: partner_management
+    requires_any:
+      - "vendor management"
+      - "supplier management"
+      - "vendor lifecycle"
+      - "partner performance"
+      - "vendor governance"
+    weak_only_not_enough:
+      - "vendor"
+      - "partner"
+    suppress_if_only_semantic: true
+    minimum_support_type: any
+    eligibility_boost: -0.02
+
+  Manage Wellness Program:
+    family: care_management
+    requires_any:
+      - "wellness program"
+      - "wellbeing program"
+      - "incentive program"
+      - "fitness incentive"
+      - "preventive wellness"
+    weak_only_not_enough:
+      - "wellness"
+      - "program"
+    suppress_if_only_semantic: true
+    minimum_support_type: direct
+    eligibility_boost: -0.03

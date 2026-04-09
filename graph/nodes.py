@@ -967,6 +967,10 @@ def node_taxonomy_policy_rerank(state: PredictionState) -> Dict[str, Any]:
     t = time.time()
     verify_judgments = state.get("verify_judgments", [])
     candidate_evidence = state.get("candidate_evidence", [])
+    historical_value_stream_support = state.get("historical_value_stream_support", [])
+    bundle_patterns = state.get("bundle_patterns", [])
+    downstream_chains = state.get("downstream_chains", [])
+    downstream_promoted_candidates = state.get("downstream_promoted_candidates", [])
     taxonomy_registry = state.get("_taxonomy_registry")  # type: ignore[call-overload]
 
     # Build lower-cased card text for signal matching
@@ -977,6 +981,10 @@ def node_taxonomy_policy_rerank(state: PredictionState) -> Dict[str, Any]:
         verify_judgments=verify_judgments,
         candidate_evidence=candidate_evidence,
         taxonomy_registry=taxonomy_registry,
+        historical_value_stream_support=historical_value_stream_support,
+        bundle_patterns=bundle_patterns,
+        downstream_chains=downstream_chains,
+        downstream_promoted_candidates=downstream_promoted_candidates,
         lower_card_text=lower_text,
     )
 
