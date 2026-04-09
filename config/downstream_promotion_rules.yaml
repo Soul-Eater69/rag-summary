@@ -1,0 +1,327 @@
+# ============================================================================
+# Downstream Promotion Rules (Phase 3)
+#
+# Defines which value streams can be promoted as downstream/pattern candidates
+# when prerequisite streams are supported by historical evidence.
+#
+# Used by: generation/downstream_promoter.py
+# Consumed by: node_promote_downstream_candidates (between parse_attachments
+#              and build_evidence)
+#
+# Schema per rule:
+#   name:                    unique rule identifier
+#   requires_any:            VS names — at least one must clear the threshold
+#   historical_score_min:    minimum historical_value_stream_support score
+#                            for the requires_any match (0–1)
+#   historical_bundle_min:   minimum bundle co-occurrence fraction (0–1);
+#                            if specified, a bundle_patterns entry can satisfy
+#                            requires_any even without historical_score_min
+#   downstream_chain_trigger: if true, a downstream_chains entry for any
+#                             requires_any stream also satisfies the rule
+#   promotes:                VS names to create as downstream candidates
+#   support_type:            always "pattern" — these are inferred, not direct
+#   max_score:               score ceiling for the promoted candidate
+#   description:             human-readable explanation
+#
+# Rule evaluation order matters: rules are evaluated in document order.
+# A stream can be promoted by multiple rules; scores are max-pooled.
+# ============================================================================
+
+version: "1"
+
+rules:
+
+  # --------------------------------------------------------------------------
+  # Finance family — payment and invoice downstream of O2C
+  # --------------------------------------------------------------------------
+
+  - name: o2c_to_issue_payment
+    description: >
+      When Order to Cash is supported, Issue Payment is a near-certain
+      downstream operational requirement. Historical co-occurrence is very high
+      (finance workflows always end in a payment step).
+    requires_any:
+      - Order to Cash
+    historical_score_min: 0.35
+    historical_bundle_min: 0.50
+    downstream_chain_trigger: true
+    promotes:
+      - Issue Payment
+    support_type: pattern
+    max_score: 0.62
+
+  - name: invoice_to_issue_payment
+    description: >
+      Manage Invoice and Payment Receipt triggers Issue Payment as a downstream
+      operation — receiving an invoice is the precursor to disbursement.
+    requires_any:
+      - Manage Invoice and Payment Receipt
+    historical_score_min: 0.35
+    historical_bundle_min: 0.45
+    downstream_chain_trigger: true
+    promotes:
+      - Issue Payment
+    support_type: pattern
+    max_score: 0.58
+
+  - name: o2c_to_invoice_management
+    description: >
+      Order to Cash (broad) strongly implies Manage Invoice and Payment Receipt
+      as a specific operational sub-process. O2C cards frequently contain
+      detailed invoice workflows in attachments or exhibits.
+    requires_any:
+      - Order to Cash
+    historical_score_min: 0.40
+    historical_bundle_min: 0.50
+    downstream_chain_trigger: true
+    promotes:
+      - Manage Invoice and Payment Receipt
+    support_type: pattern
+    max_score: 0.60
+
+  # --------------------------------------------------------------------------
+  # Provider network family — credentialing and contracting downstream of network
+  # --------------------------------------------------------------------------
+
+  - name: provider_network_to_credentialing
+    description: >
+      Manage Provider Network almost always co-occurs with Credential Provider —
+      any new or expanded network requires credentialing workflows.
+    requires_any:
+      - Manage Provider Network
+    historical_score_min: 0.35
+    historical_bundle_min: 0.45
+    downstream_chain_trigger: true
+    promotes:
+      - Credential Provider
+    support_type: pattern
+    max_score: 0.60
+
+  - name: provider_network_to_contracting
+    description: >
+      Manage Provider Network implies Contract Provider — network setup requires
+      provider agreements and fee schedule negotiation.
+    requires_any:
+      - Manage Provider Network
+    historical_score_min: 0.35
+    historical_bundle_min: 0.45
+    downstream_chain_trigger: true
+    promotes:
+      - Contract Provider
+    support_type: pattern
+    max_score: 0.58
+
+  - name: credentialing_to_contracting
+    description: >
+      Credential Provider frequently leads to Contract Provider — once a provider
+      is credentialed, contracting follows in most network onboarding workflows.
+    requires_any:
+      - Credential Provider
+    historical_score_min: 0.40
+    historical_bundle_min: 0.50
+    downstream_chain_trigger: true
+    promotes:
+      - Contract Provider
+    support_type: pattern
+    max_score: 0.55
+
+  - name: provider_network_to_onboard_partner
+    description: >
+      Provider network expansion often co-occurs with partner onboarding when
+      the initiative includes delegated operations or third-party integrations.
+    requires_any:
+      - Manage Provider Network
+    historical_score_min: 0.40
+    historical_bundle_min: 0.55
+    downstream_chain_trigger: false
+    promotes:
+      - Onboard Partner
+    support_type: pattern
+    max_score: 0.52
+
+  # --------------------------------------------------------------------------
+  # Care management family — care coordination downstream of population health
+  # --------------------------------------------------------------------------
+
+  - name: population_health_to_care_coordination
+    description: >
+      Manage Population Health work produces care coordination needs — identifying
+      at-risk members leads directly to care coordination activities.
+    requires_any:
+      - Manage Population Health
+    historical_score_min: 0.35
+    historical_bundle_min: 0.45
+    downstream_chain_trigger: true
+    promotes:
+      - Manage Care Coordination
+    support_type: pattern
+    max_score: 0.60
+
+  - name: health_mgmt_program_to_care_coordination
+    description: >
+      Participate in Health Management Program co-occurs with care coordination —
+      health management programs require care coordinators to work with members.
+    requires_any:
+      - Participate in Health Management Program
+    historical_score_min: 0.35
+    historical_bundle_min: 0.45
+    downstream_chain_trigger: true
+    promotes:
+      - Manage Care Coordination
+    support_type: pattern
+    max_score: 0.55
+
+  - name: quality_to_population_health
+    description: >
+      Manage Quality Program leads to population health intervention when the
+      quality work identifies population-level gaps or care disparities.
+    requires_any:
+      - Manage Quality Program
+    historical_score_min: 0.40
+    historical_bundle_min: 0.50
+    downstream_chain_trigger: false
+    promotes:
+      - Manage Population Health
+    support_type: pattern
+    max_score: 0.52
+
+  # --------------------------------------------------------------------------
+  # Enrollment family — eligibility downstream of enrollment
+  # --------------------------------------------------------------------------
+
+  - name: enrollment_to_eligibility
+    description: >
+      Manage Enrollment almost always requires Manage Eligibility as a
+      prerequisite — determining eligibility is part of the enrollment lifecycle.
+    requires_any:
+      - Manage Enrollment
+    historical_score_min: 0.35
+    historical_bundle_min: 0.45
+    downstream_chain_trigger: true
+    promotes:
+      - Manage Eligibility
+    support_type: pattern
+    max_score: 0.60
+
+  # --------------------------------------------------------------------------
+  # Claims family — COB and subrogation downstream of adjudication
+  # --------------------------------------------------------------------------
+
+  - name: claims_to_cob
+    description: >
+      Adjudicate Claim and Manage Claim frequently co-occur with Manage COB
+      (Coordination of Benefits) — adjudication processes must check for
+      coordination with other payers before finalizing payment.
+    requires_any:
+      - Adjudicate Claim
+      - Manage Claim
+    historical_score_min: 0.35
+    historical_bundle_min: 0.45
+    downstream_chain_trigger: true
+    promotes:
+      - Manage COB
+    support_type: pattern
+    max_score: 0.58
+
+  - name: cob_to_subrogation
+    description: >
+      Manage COB and claims adjudication often trigger subrogation when a
+      third-party liability is identified during coordination of benefits review.
+    requires_any:
+      - Manage COB
+      - Adjudicate Claim
+    historical_score_min: 0.40
+    historical_bundle_min: 0.50
+    downstream_chain_trigger: false
+    promotes:
+      - Manage Subrogation
+    support_type: pattern
+    max_score: 0.52
+
+  # --------------------------------------------------------------------------
+  # Utilization family — utilization management downstream of authorization
+  # --------------------------------------------------------------------------
+
+  - name: authorize_to_utilization_mgmt
+    description: >
+      Authorize Service is a component of Manage Utilization — service
+      authorization is the operational output of a utilization management program.
+    requires_any:
+      - Authorize Service
+    historical_score_min: 0.40
+    historical_bundle_min: 0.50
+    downstream_chain_trigger: true
+    promotes:
+      - Manage Utilization
+    support_type: pattern
+    max_score: 0.58
+
+  # --------------------------------------------------------------------------
+  # Appeals family — grievance downstream of appeal
+  # --------------------------------------------------------------------------
+
+  - name: appeal_to_grievance
+    description: >
+      Manage Appeal and Manage Grievance are sibling processes — organizations
+      that handle appeals almost always handle grievances through the same
+      operations team, and they co-occur heavily in historical data.
+    requires_any:
+      - Manage Appeal
+    historical_score_min: 0.40
+    historical_bundle_min: 0.50
+    downstream_chain_trigger: false
+    promotes:
+      - Manage Grievance
+    support_type: pattern
+    max_score: 0.55
+
+  - name: grievance_to_appeal
+    description: >
+      Symmetric sibling: Manage Grievance co-occurs with Manage Appeal.
+    requires_any:
+      - Manage Grievance
+    historical_score_min: 0.40
+    historical_bundle_min: 0.50
+    downstream_chain_trigger: false
+    promotes:
+      - Manage Appeal
+    support_type: pattern
+    max_score: 0.55
+
+  # --------------------------------------------------------------------------
+  # Product & pricing family — product inventory downstream of CPQ
+  # --------------------------------------------------------------------------
+
+  - name: cpq_to_product_inventory
+    description: >
+      Configure, Price, and Quote implementations almost always require
+      Manage Product and Service Inventory — the product catalog is the
+      foundation of CPQ configuration logic.
+    requires_any:
+      - Configure, Price, and Quote
+    historical_score_min: 0.40
+    historical_bundle_min: 0.50
+    downstream_chain_trigger: true
+    promotes:
+      - Manage Product and Service Inventory
+    support_type: pattern
+    max_score: 0.55
+
+  # --------------------------------------------------------------------------
+  # Compliance family — FWA downstream of payment integrity / claims
+  # --------------------------------------------------------------------------
+
+  - name: payment_integrity_to_fwa
+    description: >
+      Payment integrity work (detecting improper payments) co-occurs with
+      Manage Fraud, Waste, and Abuse — payment editing is the front line of FWA.
+    requires_any:
+      - Ensure Compliance
+      - Adjudicate Claim
+    historical_score_min: 0.45
+    historical_bundle_min: 0.55
+    downstream_chain_trigger: false
+    promotes:
+      - Manage Fraud, Waste, and Abuse
+    support_type: pattern
+    max_score: 0.52
