@@ -610,3 +610,125 @@ streams:
     suppress_if_only_semantic: true
     minimum_support_type: direct
     eligibility_boost: -0.03
+
+  Manage Utilization:
+    family: utilization_management
+    requires_any:
+      - "utilization management"
+      - "um review"
+      - "concurrent review"
+      - "medical necessity review"
+      - "utilization review"
+    weak_only_not_enough:
+      - "utilization"
+      - "review"
+    suppress_if_only_semantic: true
+    minimum_support_type: any
+    prefer_over:
+      - "Authorize Service"
+    eligibility_boost: 0.01
+
+  Authorize Service:
+    family: utilization_management
+    requires_any:
+      - "prior authorization"
+      - "service authorization"
+      - "pre-certification"
+      - "auth request"
+      - "authorization decision"
+    weak_only_not_enough:
+      - "authorization"
+      - "approve service"
+    suppress_if_only_semantic: true
+    minimum_support_type: any
+    prefer_over: []
+    eligibility_boost: 0.02
+
+  Manage Quality Program:
+    family: quality
+    requires_any:
+      - "quality program"
+      - "hedis"
+      - "star ratings"
+      - "quality measure"
+      - "quality improvement"
+    weak_only_not_enough:
+      - "quality"
+      - "measure"
+    suppress_if_only_semantic: true
+    minimum_support_type: any
+    prefer_over:
+      - "Manage Accreditation"
+    eligibility_boost: 0.01
+
+  Manage Accreditation:
+    family: quality
+    requires_any:
+      - "ncqa"
+      - "urac"
+      - "accreditation"
+      - "accreditation survey"
+      - "accreditation readiness"
+    weak_only_not_enough:
+      - "compliance"
+    suppress_if_only_semantic: true
+    minimum_support_type: any
+    prefer_over: []
+    eligibility_boost: 0.02
+
+  Manage Pharmacy Benefit:
+    family: pharmacy
+    requires_any:
+      - "pharmacy benefit"
+      - "pbm"
+      - "formulary"
+      - "drug coverage"
+      - "prior auth for drugs"
+      - "pharmacy claims"
+    weak_only_not_enough:
+      - "pharmacy"
+      - "drug"
+    suppress_if_only_semantic: true
+    minimum_support_type: any
+    prefer_over: []
+    eligibility_boost: 0.01
+
+  Manage Behavioral Health:
+    family: specialty_benefits
+    requires_any:
+      - "behavioral health"
+      - "mental health"
+      - "substance use"
+      - "psychiatric care"
+    weak_only_not_enough:
+      - "behavioral"
+      - "mental"
+    suppress_if_only_semantic: true
+    minimum_support_type: direct
+    eligibility_boost: 0.0
+
+  Manage Dental:
+    family: specialty_benefits
+    requires_any:
+      - "dental"
+      - "oral health"
+      - "dental claims"
+      - "dental network"
+    weak_only_not_enough:
+      - "tooth"
+    suppress_if_only_semantic: true
+    minimum_support_type: direct
+    eligibility_boost: 0.0
+
+  Manage Vision:
+    family: specialty_benefits
+    requires_any:
+      - "vision"
+      - "optometry"
+      - "eye exam"
+      - "vision benefit"
+    weak_only_not_enough:
+      - "eye"
+    suppress_if_only_semantic: true
+    minimum_support_type: direct
+    eligibility_boost: 0.0

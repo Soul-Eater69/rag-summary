@@ -305,7 +305,7 @@ streams:
     suppress_if_preferred: false
 
   # ---------------------------------------------------------------------------
-  # Family: utilization
+  # Family: utilization_management
   # ---------------------------------------------------------------------------
   - id: 18
     canonical_name: "Manage Utilization"
@@ -314,7 +314,7 @@ streams:
       - "Utilization Management"
       - "UM"
       - "manage utilization"
-    family: "utilization"
+    family: "utilization_management"
     scope: "Prior authorization, concurrent review, and utilization review"
     broad: false
     overlaps_with:
@@ -329,7 +329,7 @@ streams:
       - "Service Authorization"
       - "Prior Authorization"
       - "authorize service"
-    family: "utilization"
+    family: "utilization_management"
     scope: "Pre-service and concurrent service authorization decisions"
     broad: false
     overlaps_with:
