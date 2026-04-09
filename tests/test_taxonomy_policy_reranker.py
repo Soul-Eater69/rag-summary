@@ -539,7 +539,10 @@ class TestDecisionLog:
         )
         decision = result["taxonomy_decisions"][0]
         for field in ("entity_name", "bucket", "fused_score", "eligibility_score",
-                      "policy_adjustment", "suppressed", "suppression_reason"):
+                      "policy_adjustment", "suppressed", "suppression_reason",
+                      "historical_support_present", "bundle_support_present",
+                      "downstream_support_present", "historical_support_score",
+                      "bundle_support_score", "downstream_support_score"):
             assert field in decision, f"Decision missing field '{field}'"
 
 
@@ -589,3 +592,73 @@ class TestRealConfigs:
         )
         suppressed_names = [s["entity_name"] for s in result["taxonomy_suppressed_candidates"]]
         assert "Configure, Price, and Quote" not in suppressed_names
+
+    def test_participate_hmp_suppressed_without_enrollment_signals(self):
+        result = rerank_candidates_by_taxonomy_policy(
+            verify_judgments=[
+                _make_judgment(
+                    "Participate in Health Management Program",
+                    bucket="pattern_inferred",
+                    confidence=0.48,
+                )
+            ],
+            candidate_evidence=[_make_evidence("Participate in Health Management Program", 0.48)],
+            taxonomy_registry=None,
+            lower_card_text="improve member outcomes through better care workflows",
+        )
+        suppressed_names = [s["entity_name"] for s in result["taxonomy_suppressed_candidates"]]
+        assert "Participate in Health Management Program" in suppressed_names
+
+    def test_issue_payment_preserved_with_downstream_and_historical_support(self):
+        result = rerank_candidates_by_taxonomy_policy(
+            verify_judgments=[
+                _make_judgment(
+                    "Issue Payment",
+                    bucket="pattern_inferred",
+                    confidence=0.41,
+                    rationale="downstream_promotion:o2c_to_issue_payment",
+                )
+            ],
+            candidate_evidence=[_make_evidence("Issue Payment", 0.41)],
+            taxonomy_registry=None,
+            historical_value_stream_support=[{"entity_name": "Issue Payment", "score": 0.42}],
+            bundle_patterns=[{
+                "primary_vs": "Order to Cash",
+                "bundled_vs": "Issue Payment",
+                "co_occurrence_fraction": 0.68,
+            }],
+            downstream_chains=[{
+                "upstream_vs": "Order to Cash",
+                "downstream_vs": "Issue Payment",
+                "analog_count": 4,
+            }],
+            downstream_promoted_candidates=[{"entity_name": "Issue Payment", "score": 0.5}],
+            lower_card_text="billing payment modernization roadmap",
+        )
+        suppressed_names = [s["entity_name"] for s in result["taxonomy_suppressed_candidates"]]
+        assert "Issue Payment" not in suppressed_names
+        decision = next(d for d in result["taxonomy_decisions"] if d["entity_name"] == "Issue Payment")
+        assert decision["downstream_support_present"] is True
+        assert decision["historical_support_score"] > 0
+
+    def test_onboard_partner_dominates_provider_network_when_workflow_present(self):
+        registry = _Registry([
+            _Stream("Onboard Partner", family="provider_network", preferred_over=["Manage Provider Network"]),
+            _Stream("Manage Provider Network", family="provider_network", suppress_if_preferred=True),
+        ])
+        result = rerank_candidates_by_taxonomy_policy(
+            verify_judgments=[
+                _make_judgment("Onboard Partner", confidence=0.83),
+                _make_judgment("Manage Provider Network", confidence=0.54),
+            ],
+            candidate_evidence=[
+                _make_evidence("Onboard Partner", 0.83),
+                _make_evidence("Manage Provider Network", 0.54),
+            ],
+            taxonomy_registry=registry,
+            lower_card_text="partner onboarding workflow and vendor setup automation",
+        )
+        reranked = [r["entity_name"] for r in result["taxonomy_reranked_candidates"]]
+        suppressed = [s["entity_name"] for s in result["taxonomy_suppressed_candidates"]]
+        assert "Onboard Partner" in reranked
+        assert "Manage Provider Network" in suppressed

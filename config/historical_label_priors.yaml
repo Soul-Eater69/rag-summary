@@ -24,6 +24,7 @@ families:
       - "Manage Invoice and Payment Receipt"
     adjacent_weak_labels:
       - "Issue Payment"
+      - "Manage COB"
     downstream_labels:
       - "Issue Payment"
       - "Manage Invoice and Payment Receipt"
@@ -32,6 +33,7 @@ families:
   product_and_pricing:
     dominant_labels:
       - "Configure, Price, and Quote"
+      - "Manage Product and Service Inventory"
     adjacent_weak_labels:
       - "Manage Product and Service Inventory"
       - "Manage Enrollment"
@@ -42,6 +44,7 @@ families:
   member_services:
     dominant_labels:
       - "Resolve Request Inquiry"
+      - "Manage Member Information"
     adjacent_weak_labels:
       - "Manage Appeal"
     downstream_labels:
@@ -54,6 +57,7 @@ families:
       - "Manage Eligibility"
     adjacent_weak_labels:
       - "Configure, Price, and Quote"
+      - "Participate in Health Management Program"
     downstream_labels:
       - "Manage Eligibility"
       - "Manage COB"
@@ -82,17 +86,21 @@ families:
       - "Manage Wellness Program"
     downstream_labels:
       - "Manage Wellness Program"
+      - "Participate in Health Management Program"
     label_frequency: 0.50
 
   provider_network:
     dominant_labels:
       - "Manage Provider Network"
+      - "Onboard Partner"
     adjacent_weak_labels:
       - "Credential Provider"
       - "Contract Provider"
+      - "Manage Vendor Relationship"
     downstream_labels:
       - "Credential Provider"
       - "Contract Provider"
+      - "Onboard Partner"
     label_frequency: 0.55
 
   strategy:
@@ -109,11 +117,13 @@ families:
       - "Manage Vendor Relationship"
     downstream_labels:
       - "Manage Vendor Relationship"
-    label_frequency: 0.40
+      - "Manage Provider Network"
+    label_frequency: 0.32
 
   compliance_and_risk:
     dominant_labels:
       - "Ensure Compliance"
+      - "Manage Enterprise Risk"
     adjacent_weak_labels:
       - "Manage Fraud, Waste, and Abuse"
       - "Manage Enterprise Risk"
@@ -134,14 +144,16 @@ families:
     dominant_labels:
       - "Manage IT Infrastructure"
       - "Manage Human Capital"
-    adjacent_weak_labels: []
+    adjacent_weak_labels:
+      - "Manage Data and Analytics"
     downstream_labels: []
     label_frequency: 0.20
 
   data_and_analytics:
     dominant_labels:
       - "Manage Data and Analytics"
-    adjacent_weak_labels: []
+    adjacent_weak_labels:
+      - "Manage IT Infrastructure"
     downstream_labels: []
     label_frequency: 0.35
 

@@ -327,6 +327,17 @@ def _persist_debug_artifacts(
         history["latest_run_number"] = computed_run_number
         history["run_count"] = len(runs)
 
+        canonical_prediction_labels: List[str] = []
+        if result.get("selected_value_streams"):
+            canonical_prediction_labels = sorted({
+                (c.get("entity_name") or "").strip()
+                for c in result.get("selected_value_streams", [])
+                if (c.get("entity_name") or "").strip()
+            })
+
+        canonical_gt_labels = result.get("canonical_gt_labels", [])
+        stream_signal_hits = result.get("stream_signal_hits", [])
+
         artifacts = {
             "new_card_summary.json": result.get("new_card_summary", {}),
             "analog_tickets.json": result.get("analog_tickets", []),
@@ -355,6 +366,9 @@ def _persist_debug_artifacts(
             "taxonomy_reranked_candidates.json": result.get("taxonomy_reranked_candidates", []),
             "taxonomy_suppressed_candidates.json": result.get("taxonomy_suppressed_candidates", []),
             "taxonomy_decisions.json": result.get("taxonomy_decisions", []),
+            "canonical_prediction_labels.json": canonical_prediction_labels,
+            "canonical_gt_labels.json": canonical_gt_labels,
+            "stream_signal_hits.json": stream_signal_hits,
             # Taxonomy registry diagnostics
             "canonical_label_map.json": result.get("canonical_label_map", {}),
             "taxonomy_warnings.json": result.get("taxonomy_warnings", []),
