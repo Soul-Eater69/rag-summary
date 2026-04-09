@@ -1,11 +1,18 @@
 """
-LangChain-style selector finalize chain - Pass 2 (V5 architecture).
+Selector finalize chain - Pass 2 (V6 / Phase 4 architecture).
 
-Consumes VerificationResult (List[CandidateJudgment]) from Pass 1 and produces
+Consumes the output of taxonomy_policy_rerank (preferred) or raw
+VerificationResult (List[CandidateJudgment]) from Pass 1, and produces
 a validated SelectionResult (Pydantic model).
 
-Responsibilities: deduplication, calibration, contradiction cleanup,
-fused-score reconciliation, demotion of weak predictions.
+Phase 4 input priority:
+  1. taxonomy_reranked_candidates — eligibility-filtered, sibling-resolved,
+     prior-adjusted candidates from node_taxonomy_policy_rerank (preferred)
+  2. verify_judgments — raw Pass 1 judgments (fallback when reranker absent)
+
+Responsibilities: convert reranked candidates into three-class output
+(directly_supported / pattern_inferred / no_evidence), apply deduplication,
+calibration, and pattern metadata annotation.
 
 Primary path: provider-native structured output via structured_generate().
 Fallback: direct judgment-to-result conversion without LLM.
