@@ -4,12 +4,14 @@ LangGraph PredictionState (V6 architecture).
 TypedDict used as the LangGraph state object, passing data between graph nodes.
 Using TypedDict (not Pydantic BaseModel) for LangGraph compatibility.
 
-14-node graph:
+16-node graph:
   clean_and_summarize -> retrieve_analogs -> collect_vs_evidence
   -> retrieve_kg -> retrieve_themes -> map_capabilities
   -> extract_card_candidates -> collect_raw_evidence
-  -> parse_attachments -> build_evidence -> fuse_scores
-  -> verify_candidates -> finalize_selection -> finalize_output
+  -> parse_attachments -> promote_downstream_candidates
+  -> build_evidence -> fuse_scores
+  -> verify_candidates -> taxonomy_policy_rerank
+  -> finalize_selection -> finalize_output
 
 7 evidence sources:
   chunk | summary | attachment | theme | kg | historical | capability
@@ -99,6 +101,13 @@ class PredictionState(TypedDict, total=False):
     # Step 6c - promote_downstream_candidates (Phase 3)
     # ---------------------------------------------------------
     downstream_promoted_candidates: List[Dict[str, Any]]  # pattern-type downstream candidates
+
+    # ---------------------------------------------------------
+    # Step 9b - taxonomy_policy_rerank (Phase 4)
+    # ---------------------------------------------------------
+    taxonomy_reranked_candidates: List[Dict[str, Any]]   # reranked/filtered judgment dicts
+    taxonomy_suppressed_candidates: List[Dict[str, Any]] # suppressed by policy rules
+    taxonomy_decisions: List[Dict[str, Any]]             # per-candidate policy decision log
 
     # ---------------------------------------------------------
     # Step 7 - build_evidence
