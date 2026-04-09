@@ -76,9 +76,9 @@ capabilities:
       - eligibility
     promote_value_streams:
       - Onboard Partner
-      - Establish Provider Program
+      - Credential Provider
     related_value_streams:
-      - Establish Provider Network
+      - Manage Provider Network
     weight: 0.9
     min_signal_strength: 0.5
 
@@ -103,11 +103,11 @@ capabilities:
       - payment
       - quote/rating
     promote_value_streams:
-      - Order to Cash for Group Coverage
+      - Order to Cash
       - Manage Invoice and Payment Receipt
       - Issue Payment
     related_value_streams:
-      - Configure Price and Quote
+      - Configure, Price, and Quote
     weight: 0.95
     min_signal_strength: 0.55
 
@@ -132,10 +132,10 @@ capabilities:
       - quote/rating
       - enrollment
     promote_value_streams:
-      - Sell and Enroll Individual Coverage
+      - Manage Enrollment
       - Configure, Price, and Quote
     related_value_streams:
-      - Manage Leads and Opportunities
+      - Manage Eligibility
     weight: 0.85
     min_signal_strength: 0.5
 
@@ -158,9 +158,9 @@ capabilities:
       - product setup
       - onboarding
     promote_value_streams:
-      - Establish Product Offering
+      - Manage Product and Service Inventory
     related_value_streams:
-      - Manage Leads and Opportunities
+      - Manage Outreach and Marketing
       - Sell and Enroll
     weight: 0.9
     min_signal_strength: 0.5
@@ -183,9 +183,9 @@ capabilities:
       - outreach
       - care workflow
     promote_value_streams:
-      - Perform Engagement
+      - Manage Outreach and Marketing
     related_value_streams:
-      - Manage Member Care
+      - Manage Care Coordination
     weight: 0.85
     min_signal_strength: 0.5
 
@@ -209,9 +209,9 @@ capabilities:
       - care workflow
       - authorization
     promote_value_streams:
-      - Manage Member Care
+      - Manage Care Coordination
     related_value_streams:
-      - Perform Engagement
+      - Manage Outreach and Marketing
     weight: 0.9
     min_signal_strength: 0.5
 
@@ -234,7 +234,7 @@ capabilities:
       - payment
     promote_value_streams:
       - Adjudicate Claim
-      - Manage Claim Inventory
+      - Manage Claim
     related_value_streams:
       - Issue Payment
       - Manage Invoice and Payment Receipt
@@ -260,7 +260,7 @@ capabilities:
       - portal access
       - request handling
     promote_value_streams:
-      - Resolve Request-Inquiry
+      - Resolve Request Inquiry
     related_value_streams: []
     weight: 0.85
     min_signal_strength: 0.5
@@ -284,7 +284,7 @@ capabilities:
       - analytics
       - reporting
     promote_value_streams:
-      - Discover Business Insights
+      - Manage Data and Analytics
     related_value_streams: []
     weight: 0.8
     min_signal_strength: 0.5
@@ -307,9 +307,9 @@ capabilities:
       - network management
       - credentialing
     promote_value_streams:
-      - Establish Provider Network
+      - Manage Provider Network
     related_value_streams:
-      - Establish Provider Program
+      - Credential Provider
       - Onboard Partner
     weight: 0.85
     min_signal_strength: 0.5
@@ -332,9 +332,9 @@ capabilities:
     canonical_functions:
       - onboarding
     promote_value_streams:
-      - Manage Leads and Opportunities
+      - Manage Outreach and Marketing
     related_value_streams:
-      - Sell and Enroll Individual Coverage
+      - Manage Enrollment
       - Configure, Price, and Quote
     weight: 0.8
     min_signal_strength: 0.55
@@ -363,10 +363,10 @@ capabilities:
       - authorization
       - care workflow
     promote_value_streams:
-      - Administer Utilization Management Program
-      - Manage Utilization Management Program
+      - Manage Utilization
+      - Authorize Service
     related_value_streams:
-      - Manage Member Care
+      - Manage Care Coordination
     weight: 0.9
     min_signal_strength: 0.55
 
@@ -392,10 +392,10 @@ capabilities:
       - compliance
       - reporting
     promote_value_streams:
-      - Administer Quality Management Program
+      - Manage Quality Program
     related_value_streams:
       - Ensure Compliance
-      - Discover Business Insights
+      - Manage Data and Analytics
     weight: 0.85
     min_signal_strength: 0.55
 
@@ -421,10 +421,10 @@ capabilities:
       - care workflow
       - reporting
     promote_value_streams:
-      - Fulfill Value-Based Care Arrangement
+      - Manage Quality Program
     related_value_streams:
-      - Manage Member Care
-      - Realize Risk Adjustment
+      - Manage Care Coordination
+      - Ensure Compliance
     weight: 0.85
     min_signal_strength: 0.55
 
@@ -450,8 +450,8 @@ capabilities:
     promote_value_streams:
       - Participate in Health Management Program
     related_value_streams:
-      - Manage Member Care
-      - Perform Engagement
+      - Manage Care Coordination
+      - Manage Outreach and Marketing
     weight: 0.8
     min_signal_strength: 0.5
 
@@ -473,9 +473,9 @@ capabilities:
     canonical_functions:
       - care workflow
     promote_value_streams:
-      - Receive Care
+      - Manage Care Coordination
     related_value_streams:
-      - Manage Member Care
+      - Manage Care Coordination
       - Participate in Health Management Program
     weight: 0.7
     min_signal_strength: 0.5
@@ -501,9 +501,9 @@ capabilities:
       - care workflow
       - authorization
     promote_value_streams:
-      - Fill and Manage Prescriptions
+      - Manage Pharmacy Benefit
     related_value_streams:
-      - Manage Utilization Management Program
+      - Manage Utilization
     weight: 0.85
     min_signal_strength: 0.55
 
@@ -530,8 +530,8 @@ capabilities:
     promote_value_streams:
       - Promote Community Health
     related_value_streams:
-      - Perform Engagement
-      - Manage Member Care
+      - Manage Outreach and Marketing
+      - Manage Care Coordination
     weight: 0.75
     min_signal_strength: 0.5
 
@@ -559,9 +559,9 @@ capabilities:
     canonical_functions:
       - enrollment
     promote_value_streams:
-      - Enroll Group Medicare Coverage
+      - Manage Enrollment
     related_value_streams:
-      - Sell and Enroll Individual Coverage
+      - Manage Enrollment
     weight: 0.85
     min_signal_strength: 0.55
 
@@ -584,9 +584,9 @@ capabilities:
     canonical_functions:
       - enrollment
     promote_value_streams:
-      - Enroll Medicaid Member
+      - Manage Enrollment
     related_value_streams:
-      - Sell and Enroll Individual Coverage
+      - Manage Enrollment
     weight: 0.85
     min_signal_strength: 0.55
 
@@ -610,7 +610,7 @@ capabilities:
     canonical_functions:
       - enrollment
     promote_value_streams:
-      - Sell and Enroll Individual Coverage
+      - Manage Enrollment
     related_value_streams:
       - Configure, Price, and Quote
     weight: 0.85
@@ -640,9 +640,9 @@ capabilities:
       - reporting
       - compliance
     promote_value_streams:
-      - Realize Risk Adjustment
+      - Ensure Compliance
     related_value_streams:
-      - Enroll Group Medicare Coverage
+      - Manage Enrollment
     weight: 0.85
     min_signal_strength: 0.55
 
@@ -665,7 +665,7 @@ capabilities:
     canonical_functions:
       - reporting
     promote_value_streams:
-      - Optimize Reserves
+      - Manage Enterprise Risk
     related_value_streams:
       - Manage Enterprise Risk
     weight: 0.8
@@ -692,10 +692,10 @@ capabilities:
       - onboarding
       - outreach
     promote_value_streams:
-      - Manage Producer Operations
+      - Onboard Partner
     related_value_streams:
-      - Manage Leads and Opportunities
-      - Sell and Enroll Individual Coverage
+      - Manage Outreach and Marketing
+      - Manage Enrollment
     weight: 0.8
     min_signal_strength: 0.5
 
@@ -722,9 +722,9 @@ capabilities:
     canonical_functions:
       - reporting
     promote_value_streams:
-      - Record Financial Transaction
+      - Order to Cash
     related_value_streams:
-      - Reconcile Account
+      - Manage Invoice and Payment Receipt
       - Manage Invoice and Payment Receipt
     weight: 0.75
     min_signal_strength: 0.55
@@ -748,10 +748,10 @@ capabilities:
     canonical_functions:
       - reporting
     promote_value_streams:
-      - Reconcile Account
-      - Reconcile Data
+      - Manage Invoice and Payment Receipt
+      - Manage Data and Analytics
     related_value_streams:
-      - Record Financial Transaction
+      - Order to Cash
     weight: 0.75
     min_signal_strength: 0.55
 
@@ -775,10 +775,10 @@ capabilities:
     canonical_functions:
       - claims processing
     promote_value_streams:
-      - Recover Overpayment
+      - Manage COB
     related_value_streams:
-      - Ensure Payment Integrity
-      - Reconcile Account
+      - Manage Fraud, Waste, and Abuse
+      - Manage Invoice and Payment Receipt
     weight: 0.8
     min_signal_strength: 0.55
 
@@ -805,9 +805,9 @@ capabilities:
       - compliance
       - claims processing
     promote_value_streams:
-      - Ensure Payment Integrity
+      - Manage Fraud, Waste, and Abuse
     related_value_streams:
-      - Recover Overpayment
+      - Manage COB
       - Adjudicate Claim
     weight: 0.85
     min_signal_strength: 0.55
@@ -831,7 +831,7 @@ capabilities:
     canonical_functions:
       - vendor integration
     promote_value_streams:
-      - Acquire Asset
+      - Manage Vendor Relationship
     related_value_streams:
       - Onboard Partner
     weight: 0.7
@@ -862,7 +862,7 @@ capabilities:
       - request handling
       - compliance
     promote_value_streams:
-      - Appeal Decision
+      - Manage Appeal
     related_value_streams:
       - Resolve Request-Inquiry
     weight: 0.85
@@ -888,8 +888,8 @@ capabilities:
     canonical_functions:
       - compliance
     promote_value_streams:
-      - Conduct Audit
-      - Support External Audit
+      - Ensure Compliance
+      - Manage Enterprise Risk
     related_value_streams:
       - Ensure Compliance
       - Manage Enterprise Risk
@@ -907,7 +907,7 @@ capabilities:
       - federal filing
       - regulatory filing
       - aca reporting
-      - 1095
+      - "1095"
     indirect_cues:
       - compliance submission
       - state mandate
@@ -917,7 +917,7 @@ capabilities:
       - compliance
       - reporting
     promote_value_streams:
-      - File Regulatory Reports
+      - Manage Reporting
     related_value_streams:
       - Ensure Compliance
     weight: 0.85
@@ -942,7 +942,7 @@ capabilities:
     canonical_functions:
       - compliance
     promote_value_streams:
-      - Resolve Privacy Incident
+      - Ensure Compliance
     related_value_streams:
       - Ensure Compliance
       - Manage Enterprise Risk
@@ -973,9 +973,9 @@ capabilities:
     canonical_functions:
       - reporting
     promote_value_streams:
-      - Align and Execute IT Strategy
+      - Manage IT Infrastructure
     related_value_streams:
-      - Detect and Correct IT Issues
+      - Manage IT Infrastructure
     weight: 0.75
     min_signal_strength: 0.55
 
@@ -999,9 +999,9 @@ capabilities:
     canonical_functions:
       - request handling
     promote_value_streams:
-      - Detect and Correct IT Issues
+      - Manage IT Infrastructure
     related_value_streams:
-      - Align and Execute IT Strategy
+      - Manage IT Infrastructure
     weight: 0.8
     min_signal_strength: 0.55
 
@@ -1025,9 +1025,9 @@ capabilities:
     canonical_functions:
       - request handling
     promote_value_streams:
-      - Fulfill Request for IT Support
+      - Manage IT Infrastructure
     related_value_streams:
-      - Detect and Correct IT Issues
+      - Manage IT Infrastructure
     weight: 0.8
     min_signal_strength: 0.5
 
@@ -1054,10 +1054,10 @@ capabilities:
     canonical_functions:
       - onboarding
     promote_value_streams:
-      - Develop Human Resource Career
+      - Manage Human Capital
     related_value_streams:
-      - Manage Workforce
-      - Onboard Human Resource
+      - Manage Human Capital
+      - Manage Human Capital
     weight: 0.7
     min_signal_strength: 0.55
 
@@ -1083,7 +1083,7 @@ capabilities:
     promote_value_streams:
       - Develop Mission, Vision, and Strategy
     related_value_streams:
-      - Align and Execute IT Strategy
+      - Manage IT Infrastructure
     weight: 0.7
     min_signal_strength: 0.55
 
@@ -1106,10 +1106,10 @@ capabilities:
     canonical_functions:
       - reporting
     promote_value_streams:
-      - Manage Workforce
+      - Manage Human Capital
     related_value_streams:
-      - Develop Human Resource Career
-      - Pay Employee
+      - Manage Human Capital
+      - Manage Human Capital
     weight: 0.7
     min_signal_strength: 0.55
 
@@ -1132,10 +1132,10 @@ capabilities:
     canonical_functions:
       - onboarding
     promote_value_streams:
-      - Onboard Human Resource
+      - Manage Human Capital
     related_value_streams:
-      - Manage Workforce
-      - Develop Human Resource Career
+      - Manage Human Capital
+      - Manage Human Capital
     weight: 0.7
     min_signal_strength: 0.55
 
@@ -1158,8 +1158,8 @@ capabilities:
     canonical_functions:
       - reporting
     promote_value_streams:
-      - Pay Employee
+      - Manage Human Capital
     related_value_streams:
-      - Manage Workforce
+      - Manage Human Capital
     weight: 0.7
     min_signal_strength: 0.55

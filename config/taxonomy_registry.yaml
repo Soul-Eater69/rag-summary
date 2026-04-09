@@ -439,34 +439,430 @@ streams:
     suppress_if_preferred: false
 
   # ---------------------------------------------------------------------------
-  # TODO: Add remaining streams as they become available.
-  # When adding a new stream, follow the schema above:
-  #   id, canonical_name, evaluation_name, aliases, family, scope, broad,
-  #   overlaps_with, preferred_over, suppress_if_preferred
-  #
-  # Known streams not yet listed:
-  #   - Manage Pharmacy Benefit
-  #   - Manage Quality Program
-  #   - Manage Outreach and Marketing
-  #   - Manage Data and Analytics
-  #   - Manage IT Infrastructure
-  #   - Manage Human Capital
-  #   - Manage Vendor Relationship
-  #   - Manage Encounter
-  #   - Credential Provider
-  #   - Contract Provider
-  #   - Manage Subrogation
-  #   - Manage Reinsurance
-  #   - Manage COB (Coordination of Benefits)
-  #   - Manage Accreditation
-  #   - Manage Fraud, Waste, and Abuse
-  #   - Manage Care Coordination
-  #   - Manage Population Health
-  #   - Manage Wellness Program
-  #   - Manage Behavioral Health
-  #   - Manage Dental
-  #   - Manage Vision
-  #   - Manage Transplant
-  #   - Manage Workers Compensation
-  #   - Manage Auto/No Fault
+  # Family: pharmacy
   # ---------------------------------------------------------------------------
+  - id: 26
+    canonical_name: "Manage Pharmacy Benefit"
+    evaluation_name: "Manage Pharmacy Benefit"
+    aliases:
+      - "Pharmacy Benefit"
+      - "PBM"
+      - "Pharmacy Benefit Management"
+      - "manage pharmacy benefit"
+    family: "pharmacy"
+    scope: "Pharmacy benefit design, formulary management, and drug coverage"
+    broad: false
+    overlaps_with:
+      - "Adjudicate Claim"
+      - "Manage Utilization"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  # ---------------------------------------------------------------------------
+  # Family: quality
+  # ---------------------------------------------------------------------------
+  - id: 27
+    canonical_name: "Manage Quality Program"
+    evaluation_name: "Manage Quality Program"
+    aliases:
+      - "Quality Program"
+      - "Quality Management"
+      - "HEDIS"
+      - "Star Ratings"
+      - "manage quality program"
+    family: "quality"
+    scope: "Quality measurement, HEDIS, Stars, and program improvement initiatives"
+    broad: false
+    overlaps_with:
+      - "Manage Population Health"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  - id: 28
+    canonical_name: "Manage Accreditation"
+    evaluation_name: "Manage Accreditation"
+    aliases:
+      - "Accreditation"
+      - "NCQA Accreditation"
+      - "URAC Accreditation"
+      - "manage accreditation"
+    family: "quality"
+    scope: "NCQA, URAC, and other accreditation program management"
+    broad: false
+    overlaps_with:
+      - "Ensure Compliance"
+      - "Manage Quality Program"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  # ---------------------------------------------------------------------------
+  # Family: marketing
+  # ---------------------------------------------------------------------------
+  - id: 29
+    canonical_name: "Manage Outreach and Marketing"
+    evaluation_name: "Manage Outreach and Marketing"
+    aliases:
+      - "Outreach"
+      - "Marketing"
+      - "Member Outreach"
+      - "manage outreach and marketing"
+    family: "marketing"
+    scope: "Member outreach, marketing campaigns, and communications"
+    broad: false
+    overlaps_with: []
+    preferred_over: []
+    suppress_if_preferred: false
+
+  # ---------------------------------------------------------------------------
+  # Family: data_and_analytics
+  # ---------------------------------------------------------------------------
+  - id: 30
+    canonical_name: "Manage Data and Analytics"
+    evaluation_name: "Manage Data and Analytics"
+    aliases:
+      - "Data Analytics"
+      - "Analytics"
+      - "Business Intelligence"
+      - "BI"
+      - "manage data and analytics"
+    family: "data_and_analytics"
+    scope: "Data management, analytics platforms, and business intelligence"
+    broad: true
+    overlaps_with:
+      - "Manage Reporting"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  # ---------------------------------------------------------------------------
+  # Family: it_and_operations
+  # ---------------------------------------------------------------------------
+  - id: 31
+    canonical_name: "Manage IT Infrastructure"
+    evaluation_name: "Manage IT Infrastructure"
+    aliases:
+      - "IT Infrastructure"
+      - "Infrastructure Management"
+      - "manage IT infrastructure"
+      - "manage it infrastructure"
+    family: "it_and_operations"
+    scope: "IT systems, infrastructure, and technology operations"
+    broad: true
+    overlaps_with: []
+    preferred_over: []
+    suppress_if_preferred: true
+
+  - id: 32
+    canonical_name: "Manage Human Capital"
+    evaluation_name: "Manage Human Capital"
+    aliases:
+      - "Human Capital"
+      - "HR"
+      - "Human Resources"
+      - "manage human capital"
+    family: "it_and_operations"
+    scope: "Human resources, workforce management, and talent operations"
+    broad: true
+    overlaps_with: []
+    preferred_over: []
+    suppress_if_preferred: true
+
+  # ---------------------------------------------------------------------------
+  # Family: partner_management
+  # ---------------------------------------------------------------------------
+  - id: 33
+    canonical_name: "Manage Vendor Relationship"
+    evaluation_name: "Manage Vendor Relationship"
+    aliases:
+      - "Vendor Management"
+      - "Vendor Relationship"
+      - "manage vendor relationship"
+    family: "partner_management"
+    scope: "Vendor lifecycle management, contracts, and performance"
+    broad: false
+    overlaps_with:
+      - "Onboard Partner"
+      - "Contract Provider"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  # ---------------------------------------------------------------------------
+  # Family: encounter_management
+  # ---------------------------------------------------------------------------
+  - id: 34
+    canonical_name: "Manage Encounter"
+    evaluation_name: "Manage Encounter"
+    aliases:
+      - "Encounter Management"
+      - "Encounter Data"
+      - "manage encounter"
+    family: "encounter_management"
+    scope: "Encounter data submission, validation, and reporting to regulators"
+    broad: false
+    overlaps_with:
+      - "Adjudicate Claim"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  # ---------------------------------------------------------------------------
+  # Family: provider_network (additional streams)
+  # ---------------------------------------------------------------------------
+  - id: 35
+    canonical_name: "Credential Provider"
+    evaluation_name: "Credential Provider"
+    aliases:
+      - "Provider Credentialing"
+      - "Credentialing"
+      - "credential provider"
+    family: "provider_network"
+    scope: "Provider credentialing, re-credentialing, and primary source verification"
+    broad: false
+    overlaps_with:
+      - "Manage Provider Network"
+      - "Contract Provider"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  - id: 36
+    canonical_name: "Contract Provider"
+    evaluation_name: "Contract Provider"
+    aliases:
+      - "Provider Contracting"
+      - "Network Contracting"
+      - "contract provider"
+    family: "provider_network"
+    scope: "Provider contract negotiation, execution, and maintenance"
+    broad: false
+    overlaps_with:
+      - "Manage Provider Network"
+      - "Credential Provider"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  # ---------------------------------------------------------------------------
+  # Family: recovery
+  # ---------------------------------------------------------------------------
+  - id: 37
+    canonical_name: "Manage Subrogation"
+    evaluation_name: "Manage Subrogation"
+    aliases:
+      - "Subrogation"
+      - "manage subrogation"
+    family: "recovery"
+    scope: "Recovery of claim costs via subrogation from liable third parties"
+    broad: false
+    overlaps_with:
+      - "Manage COB"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  - id: 38
+    canonical_name: "Manage COB"
+    evaluation_name: "Manage COB"
+    aliases:
+      - "COB"
+      - "Coordination of Benefits"
+      - "Manage Coordination of Benefits"
+      - "manage cob"
+      - "manage coordination of benefits"
+    family: "recovery"
+    scope: "Coordination of benefits between primary and secondary insurers"
+    broad: false
+    overlaps_with:
+      - "Manage Subrogation"
+      - "Adjudicate Claim"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  # ---------------------------------------------------------------------------
+  # Family: reinsurance
+  # ---------------------------------------------------------------------------
+  - id: 39
+    canonical_name: "Manage Reinsurance"
+    evaluation_name: "Manage Reinsurance"
+    aliases:
+      - "Reinsurance"
+      - "Stop Loss"
+      - "manage reinsurance"
+    family: "reinsurance"
+    scope: "Reinsurance contracts, stop-loss management, and risk transfer"
+    broad: false
+    overlaps_with:
+      - "Manage Enterprise Risk"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  # ---------------------------------------------------------------------------
+  # Family: compliance_and_risk (additional streams)
+  # ---------------------------------------------------------------------------
+  - id: 40
+    canonical_name: "Manage Fraud, Waste, and Abuse"
+    evaluation_name: "Manage Fraud, Waste, and Abuse"
+    aliases:
+      - "FWA"
+      - "Fraud Waste Abuse"
+      - "Anti-Fraud"
+      - "manage fraud, waste, and abuse"
+      - "manage fraud waste and abuse"
+    family: "compliance_and_risk"
+    scope: "Detection, investigation, and prevention of fraud, waste, and abuse"
+    broad: false
+    overlaps_with:
+      - "Ensure Compliance"
+      - "Manage Enterprise Risk"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  # ---------------------------------------------------------------------------
+  # Family: care_management (additional streams)
+  # ---------------------------------------------------------------------------
+  - id: 41
+    canonical_name: "Manage Care Coordination"
+    evaluation_name: "Manage Care Coordination"
+    aliases:
+      - "Care Coordination"
+      - "Care Management"
+      - "manage care coordination"
+    family: "care_management"
+    scope: "Coordinating care across providers, settings, and services for members"
+    broad: false
+    overlaps_with:
+      - "Promote Community Health"
+      - "Manage Population Health"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  - id: 42
+    canonical_name: "Manage Population Health"
+    evaluation_name: "Manage Population Health"
+    aliases:
+      - "Population Health"
+      - "Population Health Management"
+      - "PHM"
+      - "manage population health"
+    family: "care_management"
+    scope: "Population health analytics, risk stratification, and proactive outreach"
+    broad: false
+    overlaps_with:
+      - "Promote Community Health"
+      - "Manage Care Coordination"
+      - "Manage Quality Program"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  - id: 43
+    canonical_name: "Manage Wellness Program"
+    evaluation_name: "Manage Wellness Program"
+    aliases:
+      - "Wellness Program"
+      - "Wellness"
+      - "manage wellness program"
+    family: "care_management"
+    scope: "Member wellness initiatives, incentives, and preventive care programs"
+    broad: false
+    overlaps_with:
+      - "Promote Community Health"
+      - "Participate in Health Management Program"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  # ---------------------------------------------------------------------------
+  # Family: specialty_benefits
+  # ---------------------------------------------------------------------------
+  - id: 44
+    canonical_name: "Manage Behavioral Health"
+    evaluation_name: "Manage Behavioral Health"
+    aliases:
+      - "Behavioral Health"
+      - "Mental Health"
+      - "Behavioral Health Management"
+      - "manage behavioral health"
+    family: "specialty_benefits"
+    scope: "Behavioral health benefit administration, care management, and coordination"
+    broad: false
+    overlaps_with:
+      - "Manage Utilization"
+      - "Manage Care Coordination"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  - id: 45
+    canonical_name: "Manage Dental"
+    evaluation_name: "Manage Dental"
+    aliases:
+      - "Dental Benefit"
+      - "Dental"
+      - "manage dental"
+    family: "specialty_benefits"
+    scope: "Dental benefit plan administration and claims"
+    broad: false
+    overlaps_with:
+      - "Manage Benefit"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  - id: 46
+    canonical_name: "Manage Vision"
+    evaluation_name: "Manage Vision"
+    aliases:
+      - "Vision Benefit"
+      - "Vision"
+      - "manage vision"
+    family: "specialty_benefits"
+    scope: "Vision benefit plan administration and claims"
+    broad: false
+    overlaps_with:
+      - "Manage Benefit"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  - id: 47
+    canonical_name: "Manage Transplant"
+    evaluation_name: "Manage Transplant"
+    aliases:
+      - "Transplant Management"
+      - "Transplant"
+      - "manage transplant"
+    family: "specialty_benefits"
+    scope: "Transplant case management, center of excellence coordination, and coverage"
+    broad: false
+    overlaps_with:
+      - "Manage Utilization"
+      - "Manage Care Coordination"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  - id: 48
+    canonical_name: "Manage Workers Compensation"
+    evaluation_name: "Manage Workers Compensation"
+    aliases:
+      - "Workers Compensation"
+      - "Workers Comp"
+      - "WC"
+      - "manage workers compensation"
+      - "manage workers comp"
+    family: "specialty_benefits"
+    scope: "Workers compensation claims, case management, and return-to-work programs"
+    broad: false
+    overlaps_with:
+      - "Adjudicate Claim"
+      - "Manage Claim"
+    preferred_over: []
+    suppress_if_preferred: false
+
+  - id: 49
+    canonical_name: "Manage Auto/No Fault"
+    evaluation_name: "Manage Auto/No Fault"
+    aliases:
+      - "Auto Insurance"
+      - "No Fault"
+      - "Auto/No Fault"
+      - "manage auto/no fault"
+      - "manage auto no fault"
+    family: "specialty_benefits"
+    scope: "Auto and no-fault insurance claim coordination and management"
+    broad: false
+    overlaps_with:
+      - "Adjudicate Claim"
+      - "Manage Subrogation"
+    preferred_over: []
+    suppress_if_preferred: false
