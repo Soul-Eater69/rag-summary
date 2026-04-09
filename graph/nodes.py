@@ -79,6 +79,7 @@ from rag_summary.ingestion.adapters import get_default_theme, ThemeRetrievalServ
 from rag_summary.ingestion.attachment_parser import AttachmentParser
 from rag_summary.ingestion.attachment_extractor import AttachmentExtractor
 from rag_summary.generation.attachment_candidates import extract_attachment_native_candidates
+from rag_summary.generation.downstream_promoter import promote_downstream_candidates
 from rag_summary.chains.summary_chain import SummaryChain
 from rag_summary.chains.selector_verify_chain import SelectorVerifyChain
 from rag_summary.chains.selector_finalize_chain import SelectorFinalizeChain
@@ -731,6 +732,46 @@ def node_parse_attachments(state: PredictionState) -> Dict[str, Any]:
         "attachment_extraction_metadata": extraction_metadata,
     }
 
+def node_promote_downstream_candidates(state: PredictionState) -> Dict[str, Any]:
+    """
+    Step 6c (Phase 3): Promote downstream candidates from historical patterns.
+
+    Evaluates config/downstream_promotion_rules.yaml rules against:
+      - historical_value_stream_support (scores from analog retrieval)
+      - bundle_patterns (VS co-occurrence data)
+      - downstream_chains (activation chain data)
+
+    Produces downstream_promoted_candidates — pattern-type candidates for
+    streams that are implied by prerequisite evidence but not directly mentioned
+    in the card text. These are merged into build_evidence in Step 7.
+
+    Placed between parse_attachments and build_evidence so that all upstream
+    evidence (including attachment content) is available to check, but the
+    promoted candidates still enter the full fusion pipeline.
+    """
+    t = time.time()
+
+    hist_support = state.get("historical_value_stream_support", [])
+    bundle_patterns = state.get("bundle_patterns", [])
+    downstream_chains = state.get("downstream_chains", [])
+    allowed_names = state.get("allowed_value_stream_names")
+    allowed_set = set(allowed_names) if allowed_names else None
+
+    promoted = promote_downstream_candidates(
+        historical_value_stream_support=hist_support,
+        bundle_patterns=bundle_patterns,
+        downstream_chains=downstream_chains,
+        allowed_names=allowed_set,
+    )
+
+    logger.info(
+        "[node_promote_downstream_candidates] done in %.2fs | %d promoted",
+        time.time() - t,
+        len(promoted),
+    )
+    return {"downstream_promoted_candidates": promoted}
+
+
 def node_build_evidence(state: PredictionState) -> Dict[str, Any]:
     """
     Step 7: Build CandidateEvidence objects from all 7 sources.
@@ -762,6 +803,8 @@ def node_build_evidence(state: PredictionState) -> Dict[str, Any]:
         + [a for a in analog_attach if a.get("entity_name")]
     )
     footprint_candidates = state.get("historical_footprint_candidates", [])
+    # Phase 3: include downstream-promoted candidates alongside footprint
+    downstream_promoted = state.get("downstream_promoted_candidates", [])
     summary_candidates = state.get("summary_candidates", [])
     theme_candidates = state.get("theme_candidates", [])
 
@@ -822,7 +865,8 @@ def node_build_evidence(state: PredictionState) -> Dict[str, Any]:
         for c in kg_candidates
     ]
 
-    all_historical = historical_candidates + list(footprint_candidates)
+    # Downstream-promoted candidates enter as historical source (pattern type)
+    all_historical = historical_candidates + list(footprint_candidates) + list(downstream_promoted)
 
     candidate_evidence = build_candidate_evidence(
         kg_candidates=kg_for_evidence,
@@ -844,10 +888,10 @@ def node_build_evidence(state: PredictionState) -> Dict[str, Any]:
     logger.info(
         "[node_build_evidence] done in %.2fs | %d candidates | "
         "theme_active=%s | native_attach=%d | card_attach=%d | analog_attach=%d | "
-        "bundles=%d | downstream=%d",
+        "bundles=%d | downstream=%d | downstream_promoted=%d",
         time.time() - t, len(candidate_evidence),
         active_theme, len(native_attach), len(card_attach), len(analog_attach),
-        len(bundle_patterns), len(downstream_chains),
+        len(bundle_patterns), len(downstream_chains), len(downstream_promoted),
     )
     if not active_theme:
         logger.debug(

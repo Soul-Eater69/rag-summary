@@ -24,6 +24,7 @@ from .nodes import (
     node_extract_card_candidates,
     node_collect_raw_evidence,
     node_parse_attachments,
+    node_promote_downstream_candidates,
     node_build_evidence,
     node_fuse_scores,
     node_verify_candidates,
@@ -66,6 +67,7 @@ def build_prediction_graph():
     graph.add_node("extract_card_candidates", node_extract_card_candidates)
     graph.add_node("collect_raw_evidence", node_collect_raw_evidence)
     graph.add_node("parse_attachments", node_parse_attachments)
+    graph.add_node("promote_downstream_candidates", node_promote_downstream_candidates)
     graph.add_node("build_evidence", node_build_evidence)
     graph.add_node("fuse_scores", node_fuse_scores)
     graph.add_node("verify_candidates", node_verify_candidates)
@@ -104,7 +106,8 @@ def build_prediction_graph():
     graph.add_edge("map_capabilities", "extract_card_candidates")
     graph.add_edge("extract_card_candidates", "collect_raw_evidence")
     graph.add_edge("collect_raw_evidence", "parse_attachments")
-    graph.add_edge("parse_attachments", "build_evidence")
+    graph.add_edge("parse_attachments", "promote_downstream_candidates")
+    graph.add_edge("promote_downstream_candidates", "build_evidence")
     graph.add_edge("build_evidence", "fuse_scores")
     graph.add_edge("fuse_scores", "verify_candidates")
 
@@ -148,11 +151,12 @@ def run_prediction_graph(
     """
     Run the V6 prediction pipeline via LangGraph.
 
-    14-node graph:
+    15-node graph:
       clean_and_summarize -> retrieve_analogs -> collect_vs_evidence
       -> retrieve_kg -> retrieve_themes -> map_capabilities
       -> extract_card_candidates -> collect_raw_evidence
-      -> parse_attachments -> build_evidence -> fuse_scores
+      -> parse_attachments -> promote_downstream_candidates
+      -> build_evidence -> fuse_scores
       -> verify_candidates -> finalize_selection -> finalize_output
 
     Pipeline config is injected into state as private underscore keys that
@@ -297,6 +301,7 @@ def _run_sequential(
     state = _merge(state, node_extract_card_candidates(state), node_name="extract_card_candidates")
     state = _merge(state, node_collect_raw_evidence(state), node_name="collect_raw_evidence")
     state = _merge(state, node_parse_attachments(state), node_name="parse_attachments")
+    state = _merge(state, node_promote_downstream_candidates(state), node_name="promote_downstream_candidates")
     state = _merge(state, node_build_evidence(state), node_name="build_evidence")
     state = _merge(state, node_fuse_scores(state), node_name="fuse_scores")
     state = _merge(state, node_verify_candidates(state), node_name="verify_candidates")

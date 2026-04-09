@@ -96,6 +96,11 @@ class PredictionState(TypedDict, total=False):
     attachment_extraction_metadata: List[Dict[str, Any]] # file_type, extraction_quality, etc.
 
     # ---------------------------------------------------------
+    # Step 6c - promote_downstream_candidates (Phase 3)
+    # ---------------------------------------------------------
+    downstream_promoted_candidates: List[Dict[str, Any]]  # pattern-type downstream candidates
+
+    # ---------------------------------------------------------
     # Step 7 - build_evidence
     # ---------------------------------------------------------
     candidate_evidence: List[Dict[str, Any]]  # CandidateEvidence dicts with all 7 sources
