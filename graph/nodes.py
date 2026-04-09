@@ -5,7 +5,7 @@ Each node takes a PredictionState dict, performs its step, and returns
 a partial state dict with updated keys. LangGraph merges the returned
 dict into the running state.
 
-Node order (V6 - 14 nodes):
+Node order (V6 - 16 nodes):
   clean_and_summarize
   + retrieve_analogs
   + collect_vs_evidence      (+ bundle_patterns, downstream_chains)
@@ -15,9 +15,11 @@ Node order (V6 - 14 nodes):
   + extract_card_candidates
   + collect_raw_evidence
   + parse_attachments        (V6: section-level parsing + attachment_native_candidates)
+  + promote_downstream_candidates  (Phase 3: downstream pattern candidates)
   + build_evidence           (merges all 7 sources)
   + fuse_scores
   + verify_candidates        (Pass 1)
+  + taxonomy_policy_rerank   (Phase 4: label eligibility reranking)
   + finalize_selection       (Pass 2)
   + finalize_output
 
@@ -80,6 +82,7 @@ from rag_summary.ingestion.attachment_parser import AttachmentParser
 from rag_summary.ingestion.attachment_extractor import AttachmentExtractor
 from rag_summary.generation.attachment_candidates import extract_attachment_native_candidates
 from rag_summary.generation.downstream_promoter import promote_downstream_candidates
+from rag_summary.taxonomy.policy_reranker import rerank_candidates_by_taxonomy_policy
 from rag_summary.chains.summary_chain import SummaryChain
 from rag_summary.chains.selector_verify_chain import SelectorVerifyChain
 from rag_summary.chains.selector_finalize_chain import SelectorFinalizeChain
@@ -959,23 +962,73 @@ def node_verify_candidates(state: PredictionState) -> Dict[str, Any]:
     logger.info("[node_verify_candidates] done in %.2fs | %d judgments", time.time() - t, len(judgment_dicts))
     return {"verify_judgments": judgment_dicts}
 
+def node_taxonomy_policy_rerank(state: PredictionState) -> Dict[str, Any]:
+    """Step 9b (Phase 4): Apply taxonomy policy rules to rerank verify_judgments."""
+    t = time.time()
+    verify_judgments = state.get("verify_judgments", [])
+    candidate_evidence = state.get("candidate_evidence", [])
+    taxonomy_registry = state.get("_taxonomy_registry")  # type: ignore[call-overload]
+
+    # Build lower-cased card text for signal matching
+    cleaned_text = state.get("cleaned_text") or state.get("raw_text") or ""
+    lower_text = cleaned_text.lower()
+
+    result = rerank_candidates_by_taxonomy_policy(
+        verify_judgments=verify_judgments,
+        candidate_evidence=candidate_evidence,
+        taxonomy_registry=taxonomy_registry,
+        lower_card_text=lower_text,
+    )
+
+    n_reranked = len(result.get("taxonomy_reranked_candidates", []))
+    n_suppressed = len(result.get("taxonomy_suppressed_candidates", []))
+    logger.info(
+        "[node_taxonomy_policy_rerank] done in %.2fs | reranked=%d suppressed=%d",
+        time.time() - t, n_reranked, n_suppressed,
+    )
+    return result
+
+
 def node_finalize_selection(state: PredictionState) -> Dict[str, Any]:
-    """Step 9 (Pass 2): VerificationResult -> SelectionResult."""
+    """Step 9 (Pass 2): VerificationResult -> SelectionResult.
+
+    Prefers taxonomy_reranked_candidates (Phase 4) when available:
+      - Filters suppressed candidates out before sending to LLM
+      - Passes eligibility-adjusted confidence to finalize chain
+    Falls back to raw verify_judgments when reranked candidates are absent.
+    """
     t = time.time()
     new_card_summary = state.get("new_card_summary", {})
-    judgment_dicts = state.get("verify_judgments", [])
     fused_candidates = state.get("fused_candidates", [])
     svc = _get_services(state)
 
-    judgments = [
-        CandidateJudgment(**j) if isinstance(j, dict) else j
-        for j in judgment_dicts
-    ]
+    # Phase 4: prefer reranked candidates if present (suppressed already removed)
+    reranked = state.get("taxonomy_reranked_candidates") or []
+    if reranked:
+        # Convert reranked dicts to CandidateJudgment using eligibility_score as confidence
+        judgments = [
+            CandidateJudgment(
+                entity_name=r["entity_name"],
+                bucket=r.get("bucket", "no_evidence"),
+                confidence=float(r.get("eligibility_score") or r.get("confidence") or 0.0),
+                rationale=r.get("rationale") or "",
+            )
+            for r in reranked
+        ]
+        source = "taxonomy_reranked"
+    else:
+        # Fallback: use raw verify_judgments unchanged
+        judgment_dicts = state.get("verify_judgments", [])
+        judgments = [
+            CandidateJudgment(**j) if isinstance(j, dict) else j
+            for j in judgment_dicts
+        ]
+        source = "verify_judgments"
 
     verification_result = VerificationResult(judgments=judgments)
 
-    chain = SelectorFinalizeChain(llm=svc["llm"]) # defaults to v3 prompt
-    on_prompt_cb = state.get("_trace_prompt_callback") # type: ignore[call-overload]
+    chain = SelectorFinalizeChain(llm=svc["llm"])  # defaults to v3 prompt
+    on_prompt_cb = state.get("_trace_prompt_callback")  # type: ignore[call-overload]
     selection_result: SelectionResult = chain.run(
         new_card_summary=new_card_summary,
         verification_result=verification_result,
@@ -983,7 +1036,10 @@ def node_finalize_selection(state: PredictionState) -> Dict[str, Any]:
         on_prompt=on_prompt_cb if callable(on_prompt_cb) else None,
     )
 
-    logger.info("[node_finalize_selection] done in %.2fs", time.time() - t)
+    logger.info(
+        "[node_finalize_selection] done in %.2fs | source=%s | judgments=%d",
+        time.time() - t, source, len(judgments),
+    )
     # Serialize to dict for state transport; finalize_output deserializes
     return {
         "selection_result": selection_result.model_dump(),

@@ -28,6 +28,7 @@ from .nodes import (
     node_build_evidence,
     node_fuse_scores,
     node_verify_candidates,
+    node_taxonomy_policy_rerank,
     node_finalize_selection,
     node_finalize_output,
 )
@@ -71,6 +72,7 @@ def build_prediction_graph():
     graph.add_node("build_evidence", node_build_evidence)
     graph.add_node("fuse_scores", node_fuse_scores)
     graph.add_node("verify_candidates", node_verify_candidates)
+    graph.add_node("taxonomy_policy_rerank", node_taxonomy_policy_rerank)
     graph.add_node("finalize_selection", node_finalize_selection)
     graph.add_node("finalize_output", node_finalize_output)
 
@@ -111,16 +113,17 @@ def build_prediction_graph():
     graph.add_edge("build_evidence", "fuse_scores")
     graph.add_edge("fuse_scores", "verify_candidates")
 
-    # Conditional: skip pass-2 if pass-1 was empty
+    # Conditional: skip pass-2 if pass-1 was empty; otherwise run taxonomy rerank first
     graph.add_conditional_edges(
         "verify_candidates",
         should_run_finalize,
         {
-            "finalize_selection": "finalize_selection",
+            "finalize_selection": "taxonomy_policy_rerank",
             "finalize_output": "finalize_output",
         }
     )
 
+    graph.add_edge("taxonomy_policy_rerank", "finalize_selection")
     graph.add_edge("finalize_selection", "finalize_output")
     graph.add_edge("finalize_output", END)
 
@@ -151,13 +154,14 @@ def run_prediction_graph(
     """
     Run the V6 prediction pipeline via LangGraph.
 
-    15-node graph:
+    16-node graph:
       clean_and_summarize -> retrieve_analogs -> collect_vs_evidence
       -> retrieve_kg -> retrieve_themes -> map_capabilities
       -> extract_card_candidates -> collect_raw_evidence
       -> parse_attachments -> promote_downstream_candidates
       -> build_evidence -> fuse_scores
-      -> verify_candidates -> finalize_selection -> finalize_output
+      -> verify_candidates -> taxonomy_policy_rerank
+      -> finalize_selection -> finalize_output
 
     Pipeline config is injected into state as private underscore keys that
     nodes read from. Returns the final PredictionState dict with all artifacts.
@@ -307,6 +311,7 @@ def _run_sequential(
     state = _merge(state, node_verify_candidates(state), node_name="verify_candidates")
 
     if should_run_finalize(state) == "finalize_selection":
+        state = _merge(state, node_taxonomy_policy_rerank(state), node_name="taxonomy_policy_rerank")
         state = _merge(state, node_finalize_selection(state), node_name="finalize_selection")
 
     state = _merge(state, node_finalize_output(state), node_name="finalize_output")

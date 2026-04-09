@@ -1,0 +1,180 @@
+# ============================================================================
+# Historical Label Priors (Phase 4)
+#
+# Per-family priors derived from observed labeling patterns across historical
+# analog tickets. Used by taxonomy/policy_reranker.py to:
+#   1. Boost candidates whose family shows strong historical labeling frequency
+#   2. Flag candidates whose family is adjacent but rarely dominant
+#   3. Identify downstream labels that are commonly co-labeled with a primary
+#
+# Schema per family:
+#   dominant_labels    - streams that are primary (high prior) for this family
+#   adjacent_weak_labels - streams that are often adjacent but rarely dominant
+#   downstream_labels  - streams commonly co-labeled with a dominant label
+#   label_frequency    - relative labeling frequency (0.0-1.0, informational)
+# ============================================================================
+
+version: "1"
+
+families:
+
+  finance:
+    dominant_labels:
+      - "Order to Cash"
+      - "Manage Invoice and Payment Receipt"
+    adjacent_weak_labels:
+      - "Issue Payment"
+    downstream_labels:
+      - "Issue Payment"
+      - "Manage Invoice and Payment Receipt"
+    label_frequency: 0.70
+
+  product_and_pricing:
+    dominant_labels:
+      - "Configure, Price, and Quote"
+    adjacent_weak_labels:
+      - "Manage Product and Service Inventory"
+      - "Manage Enrollment"
+    downstream_labels:
+      - "Manage Product and Service Inventory"
+    label_frequency: 0.45
+
+  member_services:
+    dominant_labels:
+      - "Resolve Request Inquiry"
+    adjacent_weak_labels:
+      - "Manage Appeal"
+    downstream_labels:
+      - "Manage Appeal"
+    label_frequency: 0.60
+
+  enrollment:
+    dominant_labels:
+      - "Manage Enrollment"
+      - "Manage Eligibility"
+    adjacent_weak_labels:
+      - "Configure, Price, and Quote"
+    downstream_labels:
+      - "Manage Eligibility"
+      - "Manage COB"
+    label_frequency: 0.65
+
+  claims:
+    dominant_labels:
+      - "Adjudicate Claim"
+      - "Manage Claim"
+    adjacent_weak_labels:
+      - "Manage COB"
+      - "Manage Appeal"
+    downstream_labels:
+      - "Manage COB"
+      - "Issue Payment"
+      - "Manage Fraud, Waste, and Abuse"
+    label_frequency: 0.72
+
+  care_management:
+    dominant_labels:
+      - "Manage Care Coordination"
+      - "Manage Population Health"
+    adjacent_weak_labels:
+      - "Promote Community Health"
+      - "Participate in Health Management Program"
+      - "Manage Wellness Program"
+    downstream_labels:
+      - "Manage Wellness Program"
+    label_frequency: 0.50
+
+  provider_network:
+    dominant_labels:
+      - "Manage Provider Network"
+    adjacent_weak_labels:
+      - "Credential Provider"
+      - "Contract Provider"
+    downstream_labels:
+      - "Credential Provider"
+      - "Contract Provider"
+    label_frequency: 0.55
+
+  strategy:
+    dominant_labels:
+      - "Develop Mission, Vision, and Strategy"
+    adjacent_weak_labels: []
+    downstream_labels: []
+    label_frequency: 0.15
+
+  partner_management:
+    dominant_labels:
+      - "Onboard Partner"
+    adjacent_weak_labels:
+      - "Manage Vendor Relationship"
+    downstream_labels:
+      - "Manage Vendor Relationship"
+    label_frequency: 0.40
+
+  compliance_and_risk:
+    dominant_labels:
+      - "Ensure Compliance"
+    adjacent_weak_labels:
+      - "Manage Fraud, Waste, and Abuse"
+      - "Manage Enterprise Risk"
+    downstream_labels:
+      - "Manage Fraud, Waste, and Abuse"
+    label_frequency: 0.45
+
+  recovery:
+    dominant_labels:
+      - "Manage COB"
+    adjacent_weak_labels:
+      - "Manage Subrogation"
+    downstream_labels:
+      - "Manage Subrogation"
+    label_frequency: 0.35
+
+  it_and_operations:
+    dominant_labels:
+      - "Manage IT Infrastructure"
+      - "Manage Human Capital"
+    adjacent_weak_labels: []
+    downstream_labels: []
+    label_frequency: 0.20
+
+  data_and_analytics:
+    dominant_labels:
+      - "Manage Data and Analytics"
+    adjacent_weak_labels: []
+    downstream_labels: []
+    label_frequency: 0.35
+
+  quality:
+    dominant_labels:
+      - "Manage Quality Program"
+    adjacent_weak_labels:
+      - "Manage Accreditation"
+    downstream_labels:
+      - "Manage Accreditation"
+    label_frequency: 0.38
+
+  pharmacy:
+    dominant_labels:
+      - "Manage Pharmacy Benefit"
+    adjacent_weak_labels: []
+    downstream_labels: []
+    label_frequency: 0.30
+
+  specialty_benefits:
+    dominant_labels: []
+    adjacent_weak_labels:
+      - "Manage Behavioral Health"
+      - "Manage Dental"
+      - "Manage Vision"
+    downstream_labels: []
+    label_frequency: 0.25
+
+  utilization_management:
+    dominant_labels:
+      - "Manage Utilization"
+      - "Authorize Service"
+    adjacent_weak_labels: []
+    downstream_labels:
+      - "Adjudicate Claim"
+    label_frequency: 0.48

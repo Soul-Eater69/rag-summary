@@ -1,0 +1,532 @@
+# ============================================================================
+# Taxonomy Policy Rules (Phase 4)
+#
+# Per-stream rules that govern *label eligibility* — independent of evidence
+# strength. These rules are evaluated by taxonomy/policy_reranker.py between
+# verify_candidates (Pass 1) and finalize_selection (Pass 2).
+#
+# Terminology:
+#   requires_any          - text signals needed to justify this stream label
+#   weak_only_not_enough  - signals that alone are insufficient (trigger warning)
+#   suppress_if_only_semantic - suppress if only semantic similarity (no direct signal)
+#   prefer_over           - when this stream fires, demote these sibling streams
+#   minimum_support_type  - "direct" | "pattern" | "any" (minimum bar for inclusion)
+#   eligibility_boost     - score adjustment applied when rule fires (+/-)
+#   family                - taxonomy family (informational / used for sibling lookups)
+#
+# Score semantics:
+#   eligibility_boost > 0  → stream is a better fit than raw evidence suggests
+#   eligibility_boost < 0  → stream is a weaker fit (penalty)
+#   eligibility_boost = 0  → no adjustment
+# ============================================================================
+
+version: "1"
+
+streams:
+
+  # --------------------------------------------------------------------------
+  # Finance family
+  # --------------------------------------------------------------------------
+
+  Order to Cash:
+    family: finance
+    requires_any:
+      - "order to cash"
+      - "o2c"
+      - "revenue cycle"
+      - "billing and collections"
+      - "accounts receivable"
+      - "group billing"
+      - "premium billing"
+      - "invoice"
+      - "payment collection"
+    weak_only_not_enough:
+      - "billing"
+      - "payment"
+    suppress_if_only_semantic: false
+    minimum_support_type: any
+    eligibility_boost: 0.0
+
+  Issue Payment:
+    family: finance
+    requires_any:
+      - "issue payment"
+      - "pay provider"
+      - "pay vendor"
+      - "disbursement"
+      - "payment run"
+      - "remittance"
+      - "835"
+      - "eft payment"
+      - "check issuance"
+      - "payment disbursement"
+    weak_only_not_enough:
+      - "payment"
+      - "pay"
+    suppress_if_only_semantic: true
+    minimum_support_type: any
+    eligibility_boost: 0.0
+
+  Manage Invoice and Payment Receipt:
+    family: finance
+    requires_any:
+      - "invoice"
+      - "invoice management"
+      - "payment receipt"
+      - "835"
+      - "remittance advice"
+      - "invoice reconciliation"
+      - "accounts payable"
+    weak_only_not_enough:
+      - "receipt"
+    suppress_if_only_semantic: false
+    minimum_support_type: any
+    eligibility_boost: 0.0
+
+  # --------------------------------------------------------------------------
+  # Product and pricing family
+  # --------------------------------------------------------------------------
+
+  Configure, Price, and Quote:
+    family: product_and_pricing
+    requires_any:
+      - "configure price"
+      - "cpq"
+      - "quoting engine"
+      - "rate card"
+      - "pricing engine"
+      - "product configuration"
+      - "quote generation"
+      - "rate calculation"
+      - "pricing rules"
+      - "benefit configuration"
+      - "plan configuration"
+    weak_only_not_enough:
+      - "quote"
+      - "pricing"
+      - "price"
+      - "rate"
+    suppress_if_only_semantic: true
+    minimum_support_type: any
+    prefer_over:
+      - "Manage Product and Service Inventory"
+    eligibility_boost: 0.0
+
+  Manage Product and Service Inventory:
+    family: product_and_pricing
+    requires_any:
+      - "product catalog"
+      - "benefit catalog"
+      - "product inventory"
+      - "plan catalog"
+      - "service catalog"
+      - "product library"
+      - "benefit library"
+    weak_only_not_enough:
+      - "product"
+      - "plan"
+      - "benefit"
+    suppress_if_only_semantic: true
+    minimum_support_type: any
+    eligibility_boost: 0.0
+
+  # --------------------------------------------------------------------------
+  # Member services family
+  # --------------------------------------------------------------------------
+
+  Resolve Request Inquiry:
+    family: member_services
+    requires_any:
+      - "request inquiry"
+      - "resolve inquiry"
+      - "member inquiry"
+      - "provider inquiry"
+      - "request resolution"
+      - "inquiry management"
+      - "service request"
+      - "customer service request"
+      - "grievance inquiry"
+      - "case management inquiry"
+    weak_only_not_enough:
+      - "inquiry"
+      - "request"
+    suppress_if_only_semantic: false
+    minimum_support_type: any
+    eligibility_boost: 0.0
+
+  Manage Appeal:
+    family: member_services
+    requires_any:
+      - "appeal"
+      - "grievance"
+      - "reconsideration"
+      - "dispute resolution"
+      - "appeal management"
+      - "grievance and appeal"
+    weak_only_not_enough: []
+    suppress_if_only_semantic: false
+    minimum_support_type: any
+    eligibility_boost: 0.05
+
+  # --------------------------------------------------------------------------
+  # Enrollment family
+  # --------------------------------------------------------------------------
+
+  Manage Enrollment:
+    family: enrollment
+    requires_any:
+      - "enrollment"
+      - "enroll"
+      - "disenrollment"
+      - "membership enrollment"
+      - "group enrollment"
+      - "open enrollment"
+      - "enrollment processing"
+      - "834"
+      - "member enrollment"
+    weak_only_not_enough:
+      - "member"
+    suppress_if_only_semantic: false
+    minimum_support_type: any
+    eligibility_boost: 0.0
+
+  Manage Eligibility:
+    family: enrollment
+    requires_any:
+      - "eligibility"
+      - "eligibility verification"
+      - "coverage verification"
+      - "270"
+      - "271"
+      - "eligibility check"
+      - "benefit eligibility"
+      - "member eligibility"
+    weak_only_not_enough: []
+    suppress_if_only_semantic: false
+    minimum_support_type: any
+    eligibility_boost: 0.05
+
+  # --------------------------------------------------------------------------
+  # Claims family
+  # --------------------------------------------------------------------------
+
+  Adjudicate Claim:
+    family: claims
+    requires_any:
+      - "adjudicate"
+      - "claim adjudication"
+      - "claims processing"
+      - "claim payment"
+      - "837"
+      - "eob"
+      - "explanation of benefits"
+      - "claim review"
+      - "auto-adjudication"
+      - "claim determination"
+    weak_only_not_enough:
+      - "claim"
+      - "claims"
+    suppress_if_only_semantic: false
+    minimum_support_type: any
+    eligibility_boost: 0.0
+
+  Manage Claim:
+    family: claims
+    requires_any:
+      - "claim management"
+      - "claim lifecycle"
+      - "claim inventory"
+      - "claim tracking"
+      - "claim workflow"
+      - "claim submission"
+      - "pend claim"
+      - "claim audit"
+    weak_only_not_enough:
+      - "claim"
+      - "claims"
+    suppress_if_only_semantic: false
+    minimum_support_type: any
+    eligibility_boost: 0.0
+
+  Manage COB:
+    family: recovery
+    requires_any:
+      - "cob"
+      - "coordination of benefits"
+      - "primary payer"
+      - "secondary payer"
+      - "medicare secondary payer"
+      - "cob management"
+    weak_only_not_enough: []
+    suppress_if_only_semantic: true
+    minimum_support_type: any
+    eligibility_boost: 0.05
+
+  # --------------------------------------------------------------------------
+  # Care management family
+  # --------------------------------------------------------------------------
+
+  Manage Care Coordination:
+    family: care_management
+    requires_any:
+      - "care coordination"
+      - "care management"
+      - "case management"
+      - "care coordinator"
+      - "complex care"
+      - "care plan"
+      - "care pathway"
+      - "disease management"
+      - "care transitions"
+    weak_only_not_enough:
+      - "care"
+    suppress_if_only_semantic: false
+    minimum_support_type: any
+    eligibility_boost: 0.0
+
+  Promote Community Health:
+    family: care_management
+    requires_any:
+      - "community health"
+      - "public health"
+      - "health equity"
+      - "social determinants"
+      - "sdoh"
+      - "community outreach"
+      - "community benefit"
+      - "population health equity"
+      - "health disparities"
+      - "community wellness"
+    weak_only_not_enough:
+      - "community"
+      - "health"
+      - "improve outcomes"
+      - "better outcomes"
+    suppress_if_only_semantic: true
+    minimum_support_type: direct
+    eligibility_boost: -0.05
+
+  Participate in Health Management Program:
+    family: care_management
+    requires_any:
+      - "health management program"
+      - "wellness program enrollment"
+      - "health coaching"
+      - "member health program"
+      - "preventive program"
+      - "health incentive program"
+      - "rewards program"
+      - "fitness program"
+      - "health engagement program"
+    weak_only_not_enough:
+      - "wellness"
+      - "health program"
+      - "program"
+    suppress_if_only_semantic: true
+    minimum_support_type: direct
+    eligibility_boost: -0.05
+
+  # --------------------------------------------------------------------------
+  # Provider network family
+  # --------------------------------------------------------------------------
+
+  Manage Provider Network:
+    family: provider_network
+    requires_any:
+      - "provider network"
+      - "network management"
+      - "network adequacy"
+      - "network development"
+      - "provider relations"
+      - "in-network"
+      - "out-of-network"
+      - "network directory"
+      - "network contract"
+    weak_only_not_enough:
+      - "provider"
+      - "network"
+    suppress_if_only_semantic: false
+    minimum_support_type: any
+    eligibility_boost: 0.0
+
+  Credential Provider:
+    family: provider_network
+    requires_any:
+      - "credentialing"
+      - "credential provider"
+      - "provider credentialing"
+      - "caqh"
+      - "re-credentialing"
+      - "credentialing workflow"
+      - "provider verification"
+    weak_only_not_enough: []
+    suppress_if_only_semantic: true
+    minimum_support_type: any
+    eligibility_boost: 0.05
+
+  Contract Provider:
+    family: provider_network
+    requires_any:
+      - "provider contract"
+      - "contracting"
+      - "fee schedule"
+      - "provider agreement"
+      - "network contract"
+      - "provider rates"
+      - "contract negotiation"
+    weak_only_not_enough:
+      - "contract"
+    suppress_if_only_semantic: true
+    minimum_support_type: any
+    eligibility_boost: 0.0
+
+  # --------------------------------------------------------------------------
+  # Strategy / governance family
+  # --------------------------------------------------------------------------
+
+  Develop Mission, Vision, and Strategy:
+    family: strategy
+    requires_any:
+      - "mission vision strategy"
+      - "strategic planning"
+      - "organizational strategy"
+      - "corporate strategy"
+      - "strategic roadmap"
+      - "strategic initiative"
+      - "enterprise strategy"
+    weak_only_not_enough:
+      - "strategy"
+      - "strategic"
+      - "roadmap"
+      - "initiative"
+      - "planning"
+    suppress_if_only_semantic: true
+    minimum_support_type: direct
+    eligibility_boost: -0.10
+
+  # --------------------------------------------------------------------------
+  # Partner management family
+  # --------------------------------------------------------------------------
+
+  Onboard Partner:
+    family: partner_management
+    requires_any:
+      - "partner onboarding"
+      - "vendor onboarding"
+      - "producer onboarding"
+      - "broker onboarding"
+      - "agent onboarding"
+      - "tpa onboarding"
+      - "delegated entity"
+      - "partner setup"
+      - "vendor setup"
+    weak_only_not_enough:
+      - "partner"
+      - "vendor"
+      - "onboard"
+    suppress_if_only_semantic: true
+    minimum_support_type: any
+    eligibility_boost: 0.0
+
+  # --------------------------------------------------------------------------
+  # Compliance family
+  # --------------------------------------------------------------------------
+
+  Ensure Compliance:
+    family: compliance_and_risk
+    requires_any:
+      - "compliance"
+      - "regulatory compliance"
+      - "hipaa"
+      - "regulatory reporting"
+      - "audit"
+      - "privacy"
+      - "risk compliance"
+      - "compliance monitoring"
+    weak_only_not_enough:
+      - "regulation"
+      - "regulatory"
+    suppress_if_only_semantic: false
+    minimum_support_type: any
+    eligibility_boost: 0.0
+
+  Manage Fraud, Waste, and Abuse:
+    family: compliance_and_risk
+    requires_any:
+      - "fraud"
+      - "waste and abuse"
+      - "fwa"
+      - "fraud detection"
+      - "fraud investigation"
+      - "payment integrity"
+      - "improper payment"
+    weak_only_not_enough: []
+    suppress_if_only_semantic: false
+    minimum_support_type: any
+    eligibility_boost: 0.05
+
+  # --------------------------------------------------------------------------
+  # IT and operations family (broad umbrella — penalized unless clearly needed)
+  # --------------------------------------------------------------------------
+
+  Manage IT Infrastructure:
+    family: it_and_operations
+    requires_any:
+      - "it infrastructure"
+      - "it operations"
+      - "system infrastructure"
+      - "cloud infrastructure"
+      - "network infrastructure"
+      - "server management"
+      - "infrastructure management"
+    weak_only_not_enough:
+      - "it"
+      - "technology"
+      - "system"
+      - "platform"
+    suppress_if_only_semantic: true
+    minimum_support_type: direct
+    eligibility_boost: -0.10
+
+  Manage Human Capital:
+    family: it_and_operations
+    requires_any:
+      - "human capital"
+      - "workforce management"
+      - "hr management"
+      - "employee management"
+      - "talent management"
+      - "payroll"
+      - "hcm"
+      - "human resources"
+    weak_only_not_enough:
+      - "workforce"
+      - "staff"
+      - "employee"
+    suppress_if_only_semantic: true
+    minimum_support_type: direct
+    eligibility_boost: -0.10
+
+  # --------------------------------------------------------------------------
+  # Data and analytics family (broad — penalized unless clearly needed)
+  # --------------------------------------------------------------------------
+
+  Manage Data and Analytics:
+    family: data_and_analytics
+    requires_any:
+      - "data analytics"
+      - "business intelligence"
+      - "reporting"
+      - "data management"
+      - "analytics platform"
+      - "data warehouse"
+      - "data governance"
+      - "dashboards"
+      - "insights"
+      - "kpi"
+    weak_only_not_enough:
+      - "data"
+      - "report"
+    suppress_if_only_semantic: false
+    minimum_support_type: any
+    eligibility_boost: 0.0
